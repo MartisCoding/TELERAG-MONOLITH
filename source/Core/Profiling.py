@@ -1,12 +1,6 @@
-import time
-import asyncio
-import threading
-import tracemalloc
-import multiprocessing
-import psutil
+import time, asyncio, threading, tracemalloc, multiprocessing
 from functools import wraps
-from typing import Callable, Any, Optional, Dict, Coroutine
-
+from typing import Callable, Any, Optional, Dict, Coroutine, List
 import psutil
 
 
@@ -15,6 +9,14 @@ class Profiler:
     A generic profiler to monitor execution metrics for sycnhronous and asynchronous functions,
     and periodic system-wide stats (CPU, memory, I/O).
     """
+
+    _instance: Optional['Profiler'] = None
+    @classmethod
+    def get_instance(cls) -> 'Profiler':
+        if cls._instance is None:
+            raise ValueError("Profiler instance not created. Create one.")
+        return cls._instance
+
     def __init__(self, interval: float = 1.0, snapshots: int = 10):
         self.processes_to_profile = []
         self.snapshots = snapshots
@@ -33,6 +35,20 @@ class Profiler:
         self._running = True
         self._thread = threading.Thread(target=self._collect_loop, daemon=True)
         self._thread.start()
+
+    def put_processes(self, pids: List[int]):
+        """
+        Adds a list of processes to the list of processes to profile.
+        """
+        self.processes_to_profile = pids
+    def update_process(self):
+        """
+        Updates the process to profile.
+        """
+        for key in self.processes_stats.keys():
+            if key not in self.processes_to_profile:
+                del self.processes_stats[key]
+
 
     def stop(self):
         self._running = False
@@ -58,6 +74,7 @@ class Profiler:
                 "time": time.time(),
             }
             tracemalloc.reset_peak()
+            self.update_process()
             for pid in self.processes_to_profile:
                 self.profile_process(pid)
             time.sleep(self.interval)
@@ -76,7 +93,9 @@ class Profiler:
                 "open_files": process.open_files(),
             }
         except psutil.NoSuchProcess:
-            pass
+            if pid in self.processes_to_profile:
+                del self.processes_stats[pid]
+                self.processes_to_profile.remove(pid)
 
     def profile_func(self, name: Optional[str] = None) -> Callable:
         """

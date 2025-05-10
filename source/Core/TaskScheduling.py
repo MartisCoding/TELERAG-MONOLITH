@@ -104,6 +104,7 @@ from typing import Callable, Optional, Any, Tuple, List, Dict, Iterable
 from source.Core.Logging import Logger, LogLevel
 from dataclasses import dataclass
 from source.Core.CoreUtils import time_type_dict
+from source.Core.Profiling import Profiler
 
 task_scheduler_logger = Logger("TaskScheduler", "runtime.log")
 process_logger = Logger("Process", "runtime.log")
@@ -381,6 +382,8 @@ class ProcessCompositor:
         self.cpu_threshold = cpu_threshold
         self.idle_timeout = self.covert_to_timeout(idle_timeout) # Represents the time to wait before stopping a worker if idle
         self._dispatcher_task = asyncio.create_task(self._dispatcher_loop())
+        self.pid_pool = set()
+        self.profiler = Profiler.get_instance()
 
     def submit(self, task: Task):
         self.task_queue.put(task)
@@ -412,6 +415,7 @@ class ProcessCompositor:
             if record.worker.state in (ProcessState.IDLE, ProcessState.STOPPED):
                 record.worker.terminate()
                 record.worker.join()
+                self.pid_pool.remove(record.worker.pid)
                 if record.is_async:
                     self.async_workers.remove(record)
                 else:
@@ -461,10 +465,12 @@ class ProcessCompositor:
             record = self._create_worker(is_async=True)
             record.task_queue.put(task)
             record.worker.start()
+            self.pid_pool.add(record.worker.pid)
         elif not task.is_async and len(self.sync_workers) + 1 < self.max_workers:
             record = self._create_worker(is_async=False)
             record.task_queue.put(task)
             record.worker.start()
+            self.pid_pool.add(record.worker.pid)
         else:
             if task.is_async:
                 raise RuntimeError("All async workers are busy and no new async workers can be created."
@@ -476,7 +482,12 @@ class ProcessCompositor:
     async def _dispatcher_loop(self):
         while True:
             try:
+                estimated_processes = len(self.pid_pool)
                 self._dispatch_task()
+                after_dispatch = len(self.pid_pool)
+                if estimated_processes != after_dispatch:
+                    await compositor_logger.info(f"Worker pool size changed. {estimated_processes} -> {after_dispatch}")
+                    self.profiler.put_processes(list(self.pid_pool))
             except RuntimeError as e:
                 await compositor_logger.error(f"Could not dispatch task to workers: " + str(e))
 

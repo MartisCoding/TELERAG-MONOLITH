@@ -1,30 +1,55 @@
-import asyncio
-import enum
-import sys
+"""
+Logging Module
+--------------
+This module provides asynchronous logging functionality with support for log levels,
+file rotation, and custom logging policies for the TELERAG-MONOLITH project.
 
-import aiofiles
+Key Components:
+1. Exceptions:
+   - LoggingCreationException: Raised when there is an error during logger creation.
+   - LoggingCancellation: Raised to signal cancellation of logging operations.
+
+2. Logger Infrastructure:
+   - BaseLogger: Abstract base class defining the logger interface.
+   - Logger: Implements asynchronous logging, maintains a message queue, and writes logs to files.
+   - LoggerComposer: Manages and registers logger instances, ensuring a singleton pattern for global access.
+   - ComposerMeta: A metaclass that automates logger registration to the LoggerComposer.
+
+3. Log Levels and Rotation:
+   - LogLevel: Enumerates available log levels (DEBUG, INFO, WARNING, ERROR, etc.).
+   - RotType: Defines the rotation type for log files (NONE, TIME, SIZE, TIME_SIZE).
+   - LogPolicy: Specifies policies to handle failed flush attempts (PRINT, LOOSE, KEEP).
+   - FileGateway: Handles file operations, message buffering, and log file rotation based on configured policies.
+
+4. Utility Functions:
+   - aprint and aprint_err: Asynchronous print functions to stdout and stderr respectively.
+   - stop_logging: Shuts down all loggers and file gateways gracefully.
+
+Usage:
+- Instantiate a Logger (or a subclass) to start logging. The creation process automatically registers
+  it via ComposerMeta.
+- Configure logging levels and file rotation settings as needed.
+- Use async methods like info, debug, error, etc., for logging messages.
+- Call stop_logging() after the application completes its logging tasks to ensure proper shutdown.
+"""
+
+import asyncio, enum, sys, os, aiofiles
 from datetime import datetime
 from typing import Optional
-
-from source.Core.DependencyInjection import Injectable
 from source.Core.ErrorHandling import CoreException
-
+from source.Core.CoreUtils import size_type_dict, time_type_dict
 class LoggingCreationException(CoreException):
     destination = "default"
 class LoggingCancellation(CoreException):
     destination = "default"
 
 class BaseLogger:
-
     async def exception(self, message):
         raise NotImplementedError(
             "Up to subclasses to implement this method."
         )
 
-
-
-
-class LoggerComposer(Injectable):
+class LoggerComposer:
     """
     A class that helps create, manage and use loggers.
     """
@@ -52,12 +77,11 @@ class LoggerComposer(Injectable):
             )
         return cls._instance
 
-    dependencies = []
-    is_dependency = True
-    resolved = True
-
     def __init__(self):
         self._loggers = {}
+
+    def __contains__(self, item):
+        return item in self._loggers
 
     def get_logger(self, name: str) -> BaseLogger:
         """
@@ -67,13 +91,13 @@ class LoggerComposer(Injectable):
             raise ValueError(f"Logger {name} not found.")
         return self._loggers[name][0]
 
-    def add_logger(self, name: str, logger: BaseLogger, file_location: str):
+    def add_logger(self, name: str, logger: BaseLogger, file_location: str, gateway: "FileGateway"):
         """
         Add a logger to the composer.
         """
         if name in self._loggers:
             raise ValueError(f"Logger {name} already exists.")
-        self._loggers[name] = (logger, file_location)
+        self._loggers[name] = (logger, file_location, gateway)
 
     def remove_logger(self, name: str):
         """
@@ -89,14 +113,23 @@ class LoggerComposer(Injectable):
         """
         return self._loggers
 
-    def verify_file_location(self, file: str) -> bool:
+    def get_gateway_if_exists(self, file: str) -> Optional['FileGateway']:
         """
-        it checks for any matches of logfile location in the list of loggers. If it finds any, it returns False. Because each logger must have unique file location.
+        Returns file gateway if exists. Otherwise, returns None.
         """
         for logger in self._loggers.values():
             if logger[1] == file:
-                return False
-        return True
+                return logger[2]
+            else:
+                return None
+    def stop_everything(self):
+        """
+        Stop all loggers. Use this after the app is done.
+        """
+        for logger in self._loggers.values():
+            logger[0].stop()
+            logger[2].stop()
+        self._loggers = {}
 
 
 class ComposerMeta(type):
@@ -117,53 +150,50 @@ class ComposerMeta(type):
                 cls._instance = composer
         return cls._instance
 
-    def __new__(cls, name, bases, dct):
+    @classmethod
+    def _stop_all_sig(cls):
+        """
+        Stop all loggers.
+        """
         composer = cls._get_composer()
-        if issubclass(cls, BaseLogger):
-            # Register the logger class to the composer
-            instance = super().__new__(cls, name, bases, dct)
-            logger_name = dct.get("name")
-            logfile_location = dct.get("file")
+        composer.stop_everything()
 
-            if not composer.verify_file_location(logfile_location):
-                raise LoggingCreationException(
-                    where="ComposerMeta.__new__",
-                    what="Could not register logger class to composer",
-                    summary="Logger file location already exists. Please provide unique file location. DO NOT USE SAME FILE LOCATION FOR MULTIPLE LOGGERS.",
-                )
+    def __call__(cls, *args, **kwargs):
+        """
+        This method is called when the class is instantiated.
+        It registers the logger to the composer.
+        with all the checks
+        """
+        composer = cls._get_composer()
+        logger_name = kwargs.get("name", "default")
+        logfile_location = kwargs.get("file", "log.txt")
 
-            if not logger_name:
-                logger_name = "default"
-                try:
-                    composer.add_logger(logger_name, instance, logfile_location)
-                except ValueError:
-                    raise LoggingCreationException(
-                        where="ComposerMeta.__new__, while registering logger class to composer",
-                        what="Could not register logger class to composer",
-                        summary="Could not gather logger name from class. Tried name it 'default', however this name was already been used by another logger class instance.",
-                        full_message="Could not register logger class to composer."
-                        "Tried to name it 'default', however this name was already been used by another logger class instance."
-                        "Please, provide a unique name for your logger class. Your instance must provide name attribute in class body, or in __init__ method.",
-                        fatal=False,
-                    )
-                finally:
-                    return composer.get_logger('default')
-            else:
-                try:
-                    composer.add_logger(logger_name, instance, logfile_location)
-                except ValueError:
-                    raise LoggingCreationException(
-                        where="ComposerMeta.__new__, while registering logger class to composer",
-                        what="Could not register logger class to composer",
-                        summary="Could not register logger class to composer. Logger name already exists.",
-                        full_message="Could not register logger class to composer. Logger name already exists."
-                                     "Please provide unique name in your class instance.",
-                        fatal=False
-                    )
-                finally:
-                    return composer.get_logger('default')
-        else:
-            raise LoggingCreationException(where="ComposerMeta.__new__", what="Could not register logger class to composer", summary="Class is not a subclass of BaseLogger", fatal=False)
+        logfile_location = "./logs/" + logfile_location
+
+        if logger_name in composer:
+            return composer.get_logger(logger_name)
+
+        gateway = composer.get_gateway_if_exists(logfile_location)
+        if gateway is None:
+            gateway = FileGateway(logfile_location)
+
+        logger = super().__call__(*args, **kwargs)
+        logger._file_gateway = gateway
+        try:
+            composer.add_logger(logger_name, logger, logfile_location, gateway)
+            return logger
+        except ValueError:
+            raise LoggingCreationException(
+                where="ComposerMeta.__call__",
+                what="Could not register logger instance to composer.",
+                summary="Unexpected exception while registering logger to composer. This error is genuinely impossible,"
+                        "because if name exists, you would get already existing instance. However, you're lucky enough to reach that exception."
+                        "Report the Core module developer if you see this.",
+            )
+
+
+
+
 
 
 class LogLevel(enum.Enum):
@@ -177,6 +207,24 @@ class LogLevel(enum.Enum):
     QUIET = 6
     NOTSET = 7
 
+class RotType(enum.Enum):
+    NONE = 0
+    TIME = 1
+    SIZE = 2
+    TIME_SIZE = 3
+
+class LogPolicy(enum.Enum):
+    """
+    LogPolicy enum, represents what to do in the situation of failed flush of logger.
+    NONE - placeholder. Better set to PRINT, LOOSE, or KEEP
+    PRINT - print the buffer to stdout and clear it
+    LOOSE - clear the buffer and continue
+    KEEP - keep the buffer, and try to flush again.
+    """
+    NONE = 0
+    PRINT = 1
+    LOOSE = 2
+    KEEP = 3
 
 class Logger(BaseLogger, metaclass=ComposerMeta):
     """
@@ -187,23 +235,31 @@ class Logger(BaseLogger, metaclass=ComposerMeta):
         Initialize the logger.
         """
         self.name = name
-        self._file_location = file
         self._level = LogLevel.NOTSET
-        self._max_buffer_size = 100
-        self._buffer = ""
+        self._buffer = []
         self._message_queue: asyncio.Queue = asyncio.Queue()
         self._queue_processing_task: Optional[asyncio.Task] = None
         self._logging = True
+        self._file_gateway: Optional[FileGateway] = None
+        self._file_location = file
 
-    def create(self):
+    def set_level(self, level: LogLevel):
+        """
+        Set the level of the logger. It will not be changed later.
+        """
+        if self._level != LogLevel.NOTSET:
+            return
+        self._level = level
+
+    def _create(self):
         """
         Create the logger. It creates the log file and starts the logging loop.
         """
-        if self._queue_processing_task is not None:
+        if self._queue_processing_task is not None or self._logging is False:
             raise LoggingCreationException(
                 where=f"Logger({self.name}).create",
                 what="Logger already created",
-                summary="Do not try to create logger twice. It will not work. You will get an exception. Shtupid",
+                summary="Do not try to create logger twice. It will not work. You will get an exception.",
                 fatal=False,
             )
         self._queue_processing_task = asyncio.create_task(self._process_queue())
@@ -224,8 +280,25 @@ class Logger(BaseLogger, metaclass=ComposerMeta):
             await self._message_queue.put((loglevel, message))
 
         if self._queue_processing_task is None:
-            self.create()
+            self._create()
 
+    async def info(self, message):
+        await self.log(LogLevel.INFO, message)
+
+    async def debug(self, message):
+        await self.log(LogLevel.DEBUG, message)
+
+    async def warning(self, message):
+        await self.log(LogLevel.WARNING, message)
+
+    async def error(self, message):
+        await self.log(LogLevel.ERROR, message)
+
+    async def fatal(self, message):
+        await self.log(LogLevel.FATAL, message)
+
+    async def exception(self, message):
+        await self.log(LogLevel.EXCEPTION, message)
 
     def _apply_decorations(self, level: LogLevel,  message: str) -> str:
         """
@@ -249,9 +322,9 @@ class Logger(BaseLogger, metaclass=ComposerMeta):
         return f"[{timestamp} - {self.name}/{level_string}] -> {message}"
 
     async def _process_queue(self):
-        while self._logging:
+        while self._logging and self._file_gateway:
             try:
-                msg = await self._message_queue.get()
+                level, msg = await self._message_queue.get()
                 if msg is None:
                     raise LoggingCancellation(
                         where=f"Logger({self.name})._process_queue",
@@ -259,62 +332,179 @@ class Logger(BaseLogger, metaclass=ComposerMeta):
                         summary="",
                         fatal=False,
                     )
-                loglevel, message = msg
-                message = self._apply_decorations(loglevel ,message)
-                self._buffer += message + "\n"
-                if len(self._buffer) >= self._max_buffer_size:
-                    await self._flush_buffer()
-                    await asyncio.sleep(0.01)
+                message = self._apply_decorations(level, msg)
+                await self._file_gateway.enqueue(message)
             except (asyncio.CancelledError, LoggingCancellation):
                 break
             except Exception as e:
-                raise LoggingCancellation(
-                    where=f"Logger({self.name})._process_queue",
-                    what="Error while processing queue",
-                    summary="",
-                    full_message=str(e),
-                    fatal=False,
+                await aprint_err(
+                    f"Logger {self.name} failed to log message: {e}",
                 )
 
-    async def _flush_buffer(self):
-        """
-        Flush the buffer to the log file.
-        """
-        if self._buffer:
+    async def stop(self):
+        self._logging = False
+        await self._message_queue.join()
+        if self._queue_processing_task is not None:
+            self._queue_processing_task.cancel()
             try:
-                async with aiofiles.open(self._file_location, "a") as f:
-                        await f.write(self._buffer)
-            except OSError as e:
-                await self.log(LogLevel.ERROR, f"Error while writing to log file: {e}. Probably file is not accessible. The buffer will be printed instead.")
-                await self.print_buf()
-            except Exception as e:
-                await self.log(LogLevel.ERROR, f"Unexpected while writing to log file: {e}. The buffer will be printed instead.")
-                await self.print_buf()
-            finally:
-                self._buffer = ""
-                await asyncio.sleep(0.01)
+                await self._queue_processing_task
+            except asyncio.CancelledError:
+                pass
+        self._queue_processing_task = None
 
-    async def print_buf(self):
+class FileGateway:
+    """
+    Class made to isolate file interactions from logger or multiple loggers.
+    """
+    def __init__(self, file_loc: str):
+        self.file_loc = file_loc
+        self._start_stamp = int(datetime.now().timestamp())
+        self._message_stream: asyncio.Queue[str] = asyncio.Queue()
+        self._processing_task = asyncio.create_task(self._stream_process())
+        self._logging = True
+        self._rot_type = RotType.NONE
+        self._rot_amt = None
+
+    async def enqueue(self, message: str):
+        await self._message_stream.put(message)
+
+    def set_file_rotation(self, rot_type: RotType, amt: str):
+        if self._rot_type != RotType.NONE:
+            return
+
+        self._rot_type = rot_type
+
+        if rot_type == RotType.SIZE:
+            self._rot_amt = self.convert_str_to_size(amt)
+        elif rot_type == RotType.TIME:
+            self._rot_amt = self.convert_str_to_timestamp(amt)
+        elif rot_type == RotType.TIME_SIZE:
+            time_str, size_str = amt.split("|")
+            self._rot_amt = (self.convert_str_to_timestamp(time_str), self.convert_str_to_size(size_str))
+
+    def rotate_if_needed(self, time_amt: Optional[int] = None, size_amt: Optional[int] = None):
+        if self._rot_type == RotType.NONE:
+            return
+
+        if self._rot_type == RotType.SIZE:
+            if size_amt is not None and size_amt >= self._rot_amt:
+                return True
+        if self._rot_type == RotType.TIME:
+            if time_amt is not None and time_amt - self._start_stamp > self._rot_amt:
+                return True
+        if self._rot_type == RotType.TIME_SIZE:
+            if time_amt is not None and size_amt is not None:
+                if time_amt - self._start_stamp > self._rot_amt[0] or size_amt >= self._rot_amt[1]:
+                    return True
+
+    async def _rotate_file(self):
+        self._processing_task.cancel()
+        try:
+            await self._processing_task
+        except asyncio.CancelledError:
+            pass
+
+        self._start_stamp = int(datetime.now().timestamp())
+        self._processing_task = asyncio.create_task(self._stream_process())
+
+    @staticmethod
+    def convert_str_to_size(amt: str):
         """
-        Print the buffer and flush.
+        Convert string to size in bytes.
         """
-        await asyncio.to_thread(sys.stdout.write, self._buffer.encode("utf-8"))
-        await self._flush_buffer()
+        size_amt, size_type = amt.split()
+        size_amt = int(size_amt)
 
-    async def get(self, last: int = 10):
+        coefficient = size_type_dict.get(size_type.lower(), 1)
+        return size_amt * coefficient
+
+    @staticmethod
+    def convert_str_to_timestamp(amt: str):
         """
-        Get the last n lines from the log file.
+        Convert string to timestamp.
         """
-        lines = self._buffer.split("\n")
-        if len(lines) <= last:
-            return lines
-        return lines[-last:]
+        time_amt, time_type = amt.split()
+        time_amt = int(time_amt)
+        coefficient = time_type_dict.get(time_type.lower(), 1)
+        return time_amt * coefficient
 
+    @staticmethod
+    def boilerplate_message():
+        """
+        Returns boilerplate message for the logger.
+        """
+        timestamp = int(datetime.now().timestamp())
+        return (
+            f"--- Logging Session Start ---\n"
+            f"Timestamp: {timestamp}\n"
+            f"Project: TELERAG-MONOLITH\n"
+            f"Version: 1.0\n"
+        )
 
+    async def _stream_process(self):
+        """
+        Process message stream.
+        """
+        should_rotate = False
+        async with aiofiles.open(
+            f"{os.path.splitext(self.file_loc)[0]}_{self._start_stamp}.log",
+            mode="a"
+        ) as IOstream:
+            await IOstream.write(self.boilerplate_message() + "\n" + "-" * 20 + "\n")
+            await IOstream.flush()
+            while self._logging:
+                try:
+                    msg = await self._message_stream.get()
+                    if msg is None:
+                        break
+                    await IOstream.write(msg + "\n")
+                    await IOstream.flush()
+                    if self.rotate_if_needed(int(datetime.now().timestamp()), os.path.getsize(self.file_loc)):
+                        should_rotate = True
+                        break
 
+                except (asyncio.CancelledError, LoggingCancellation):
+                    break
+                except Exception as e:
+                    await aprint_err(
+                        f"FileGateway failed to write message to file: {e}",
+                    )
 
+        if should_rotate:
+            await self._rotate_file()
 
+    async def stop(self):
+        """
+        Stop the file gateway.
+        """
+        self._logging = False
+        await self._message_stream.join()
 
+        self._processing_task.cancel()
+        try:
+            await self._processing_task
+        except asyncio.CancelledError:
+            pass
 
+async def aprint(message: str, sep: str = " ",end: str = "\n", *args):
+    """
+    async print function
+    """
+    if args:
+        for arg in args:
+            message += sep + str(arg)
+    message += end
+    await asyncio.to_thread(sys.stdout.write, message.encode("utf-8"))
 
+async def aprint_err(message: str, sep: str = " ", end: str ="\n", *args):
+    if args:
+        for arg in args:
+            message += sep + str(arg)
+    message += end
+    await asyncio.to_thread(sys.stderr.write, message.encode("utf-8"))
 
+def stop_logging():
+    """
+    Stop all loggers.
+    """
+    ComposerMeta._stop_all_sig()

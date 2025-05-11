@@ -7,7 +7,7 @@ from pyrogram import Client, filters
 from pyrogram.enums import ChatType
 from dataclasses import dataclass
 from source.Core import Logger, CoreMultiprocessing, Task, CoreException, Injectable
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 scrapper_logger = Logger("Scrapper", "network.log")
 
 class ScrapSIG(enum.Enum):
@@ -33,7 +33,7 @@ class Scrapper(Injectable):
             api_id=api_id,
             api_hash=api_hash
         )
-        self.channels_and_messages: Dict[int, List[str]] = {}
+        self.channels_and_messages: Dict[int, Tuple[str, List[str]]] = {}
         self.message_hist_limit = history_limit
         self.message_handler = None
         self.new_message_queue = asyncio.Queue()
@@ -79,7 +79,8 @@ class Scrapper(Injectable):
                             summary=f"Channel {record.channel_id} is already subscribed.",
                         )
                     await self.pyro_client.join_chat(record.channel_id)
-                    self.channels_and_messages[record.channel_id] = []
+                    chat = await self.pyro_client.get_chat(record.channel_id)
+                    self.channels_and_messages[record.channel_id] = (chat.first_name, [])
                     await self.fetch(record.channel_id)
                     await self.update_or_create_message_handler()
                 elif record.action == ScrapSIG.UNSUB:
@@ -90,7 +91,7 @@ class Scrapper(Injectable):
                             summary=f"Channel {record.channel_id} is not subscribed.",
                         )
                     await self.pyro_client.leave_chat(record.channel_id)
-                    self.channels_and_messages[record.channel_id].clear()
+                    self.channels_and_messages[record.channel_id][1].clear()
                     del self.channels_and_messages[record.channel_id]
                     await self.update_or_create_message_handler()
             except self.ScrapperException as e:
@@ -120,7 +121,7 @@ class Scrapper(Injectable):
             await scrapper_logger.warning(f"An error occurred while fetching messages from channel {channel_id}: {e}")
         finally:
             if msgs:
-                self.channels_and_messages[channel_id].extend(msgs)
+                self.channels_and_messages[channel_id][1].extend(msgs)
                 await scrapper_logger.debug(f"Fetched {len(msgs)} messages from channel {channel_id}.")
             else:
                 await scrapper_logger.debug(f"No messages fetched from channel {channel_id}.")
@@ -137,7 +138,7 @@ class Scrapper(Injectable):
             )
 
         if self.message_handler:
-            self.pyro_client.remove_handler(self.message_handler)
+            await self.pyro_client.remove_handler(self.message_handler)
             self.message_handler = None
 
         @self.pyro_client.on_message(filters.chat(list(self.channels_and_messages.keys())))
@@ -145,20 +146,20 @@ class Scrapper(Injectable):
             """
             Handles the incoming messages from the channels.
             """
+            chat_name = self.channels_and_messages[message.chat.id][0]
             if message.text:
-                self.channels_and_messages[message.chat.id].append(message.text)
-                if self.getting_messages:
-                    await self.new_message_queue.put((message.chat.id, message.text))
+                if self.getting_messages_event.is_set():
+                    await self.new_message_queue.put((message.chat.id, chat_name, message.text))
+                else:
+                    self.channels_and_messages[message.chat.id][1].append(message.text)
                 await scrapper_logger.debug(f"Got new message from channel {message.chat.id}: {message.text}")
             else:
                 await scrapper_logger.debug(f"Message {message.message_id} in channel {message.chat.id} is not a text message. Skipping.")
 
-        if not self.getting_messages_event.is_set():
-            self.getting_messages_event.set()
-
         self.message_handler = message_handler
 
     async def __aiter__(self):
+        self.getting_messages_event.set()
         self._existing_messages_iter = iter(self.channels_and_messages.items())
         self._current_channel_id = None
         self._current_message_iter = None
@@ -168,19 +169,21 @@ class Scrapper(Injectable):
         while self._existing_messages_iter:
             if self._current_message_iter is None:
                 try:
-                    self._current_channel_id, messages = next(self._existing_messages_iter)
+                    self._current_channel_id, (channel_name, messages) = next(self._existing_messages_iter)
                     self._current_message_iter = iter(messages)
+                    self._current_channel_name = channel_name
                 except StopIteration:
                     break
             try:
-                return self._current_channel_id, next(self._current_message_iter)
+                return self._current_channel_id, self._current_channel_name, next(self._current_message_iter)
             except StopIteration:
                 self._current_message_iter = None
 
-        channel_id, msg = await self.new_message_queue.get()
+        channel_id, chat_name, msg = await self.new_message_queue.get()
+
         if msg is None:
             raise StopAsyncIteration
-        return channel_id, msg
+        return channel_id, chat_name, msg
 
     async def scrapper_start(self):
         """

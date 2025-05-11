@@ -39,9 +39,9 @@ from typing import Optional
 from source.Core.ErrorHandling import CoreException
 from source.Core.CoreUtils import size_type_dict, time_type_dict
 class LoggingCreationException(CoreException):
-    destination = "default"
+    pass
 class LoggingCancellation(CoreException):
-    destination = "default"
+    pass
 
 class BaseLogger:
     async def exception(self, message):

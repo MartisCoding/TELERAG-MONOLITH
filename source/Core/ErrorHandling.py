@@ -1,8 +1,5 @@
 import asyncio
-from socket import socket
-from typing import Optional, Dict
-import sys
-
+from typing import Optional
 from source.Core.Logging import Logger, aprint_err
 
 class CoreException(Exception):

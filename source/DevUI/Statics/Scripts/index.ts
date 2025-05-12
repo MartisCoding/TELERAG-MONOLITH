@@ -58,20 +58,22 @@ function getMockSystemMetrics(): SystemMetrics {
     };
 }
 
-function getMockProcesses(count: number = 10): Process[] {
-    const processes: Process[] = [];
-    for (let i = 0; i < count; i++) {
-        processes.push({
-            pid: Math.floor(1000 + Math.random() * 9000),
-            name: `process-${i}`,
-            cpuUsage: Math.random() * 100,
-            memoryUsage: Math.random() * 100,
-            threads: Math.floor(1 + Math.random() * 20),
-            io: Math.floor(Math.random() * 1000),
-            openFiles: Math.floor(Math.random() * 100)
-        });
+// Fetch process list from API
+async function fetchProcesses(): Promise<Process[]> {
+    const response = await fetch('your_api_here/process_stats');
+    if (!response.ok) {
+        throw new Error(`Failed to fetch process stats: ${response.statusText}`);
     }
-    return processes;
+    const processes = await response.json();
+    return processes.map((pid: number) => ({
+        pid,
+        name: '', // No name available
+        cpuUsage: Math.random() * 100, // Placeholder, replace if API provides this
+        memoryUsage: Math.random() * 100, // Placeholder, replace if API provides this
+        threads: Math.floor(1 + Math.random() * 20), // Placeholder
+        io: Math.floor(Math.random() * 1000), // Placeholder
+        openFiles: Math.floor(Math.random() * 100) // Placeholder
+    }));
 }
 
 // DOM Elements
@@ -246,22 +248,37 @@ function initEventListeners(): void {
 function initDashboard(): void {
     // Load saved theme preference
     loadSavedTheme();
-    
+
+    // Fetch and update system metrics
+    const updateMetrics = async () => {
+        try {
+            const metrics = await fetchSystemMetrics();
+            updateSystemMetrics(metrics);
+        } catch (error) {
+            console.error(error);
+        }
+    };
+
+    // Fetch and render processes
+    const updateProcesses = async () => {
+        try {
+            const processes = await fetchProcesses();
+            renderProcesses(filterAndSortProcesses(processes));
+        } catch (error) {
+            console.error(error);
+        }
+    };
+
     // Set initial data
-    updateSystemMetrics(getMockSystemMetrics());
-    renderProcesses(getMockProcesses(20));
-    
+    updateMetrics();
+    updateProcesses();
+
     // Set up event listeners
     initEventListeners();
-    
+
     // Set up periodic updates
-    setInterval(() => {
-        updateSystemMetrics(getMockSystemMetrics());
-    }, 2000);
-    
-    setInterval(() => {
-        renderProcesses(filterAndSortProcesses(getMockProcesses(20)));
-    }, 5000);
+    setInterval(updateMetrics, 2000);
+    setInterval(updateProcesses, 5000);
 }
 
 // Initialize when DOM is loaded

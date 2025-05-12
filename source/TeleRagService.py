@@ -13,6 +13,7 @@ class TeleRagService:
     """
 
     def __init__(self, settings):
+        self.logger_composer = Cr.Logging.LoggerComposer(loglevel="DEBUG")
         self.scheduler = Cr.TaskScheduling.TaskScheduler(
             max_workers=settings.Core.MAX_WORKERS,
             max_async_workers=settings.Core.MAX_ASYNC_WORKERS,
@@ -44,6 +45,7 @@ class TeleRagService:
             port=settings.Web.PORT,
         )
         Cr.DependencyInjection.finalize_dependencies()
+        self.logger_composer.set_level_if_not_set()
         self.stop_event = asyncio.Event()
         self.register_stop_signal_handler()
 

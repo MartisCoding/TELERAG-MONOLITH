@@ -497,6 +497,15 @@ class ProcessCompositor:
             proc_str += f"{record.name} ({'async' if record.is_async else 'sync'}) - State: {record.worker.state.name}\n"
         return f"ProcessCompositor:\n{proc_str}\n"
 
+    async def stop(self):
+        await compositor_logger.info("The state of compositor upon stopping:\n" + self.__repr__())
+        for record in self.sync_workers + self.async_workers:
+            record.worker.stop()
+        await asyncio.sleep(0.1)
+        for record in self.sync_workers + self.async_workers:
+            record.worker.join()
+        await compositor_logger.info("All workers stopped.")
+
 
 class TaskScheduler:
 

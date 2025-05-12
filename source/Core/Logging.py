@@ -35,6 +35,7 @@ Usage:
 
 import asyncio, enum, sys, os, aiofiles
 from datetime import datetime
+from types import MappingProxyType
 from typing import Optional
 from source.Core.ErrorHandling import CoreException
 from source.Core.CoreUtils import size_type_dict, time_type_dict
@@ -42,6 +43,38 @@ class LoggingCreationException(CoreException):
     pass
 class LoggingCancellation(CoreException):
     pass
+
+class LogLevel(enum.Enum):
+    SIGSTOP = -1
+    DEBUG = 0
+    INFO = 1
+    WARNING = 2
+    ERROR = 3
+    FATAL = 4
+    EXCEPTION = 5
+    QUIET = 6
+    NOTSET = 7
+
+loglevel_dict = MappingProxyType({
+    "DEBUG": LogLevel.DEBUG,
+    "INFO": LogLevel.INFO,
+    "WARNING": LogLevel.WARNING,
+    "ERROR": LogLevel.ERROR,
+    "FATAL": LogLevel.FATAL,
+    "EXCEPTION": LogLevel.EXCEPTION,
+    "QUIET": LogLevel.QUIET,
+    "NOTSET": LogLevel.NOTSET,
+})
+reversed_loglevel_dict = MappingProxyType({
+    LogLevel.DEBUG.value: "DEBUG",
+    LogLevel.INFO.value: "INFO",
+    LogLevel.WARNING.value: "WARNING",
+    LogLevel.ERROR.value: "ERROR",
+    LogLevel.FATAL.value: "FATAL",
+    LogLevel.EXCEPTION.value: "EXCEPTION",
+    LogLevel.QUIET.value: "QUIET",
+    LogLevel.NOTSET.value: "NOTSET",
+})
 
 class BaseLogger:
     async def exception(self, message):
@@ -77,9 +110,9 @@ class LoggerComposer:
             )
         return cls._instance
 
-    def __init__(self, loglevel: "LogLevel"):
+    def __init__(self, loglevel: str):
         self._loggers = {}
-        self.level = loglevel
+        self.level = loglevel_dict.get(loglevel, LogLevel.NOTSET)
 
     def __contains__(self, item):
         return item in self._loggers
@@ -92,13 +125,13 @@ class LoggerComposer:
             raise ValueError(f"Logger {name} not found.")
         return self._loggers[name][0]
 
-    def add_logger(self, name: str, logger: BaseLogger, file_location: str, gateway: "FileGateway"):
+    def add_logger(self, name: str, logger: "Logger", file_location: str, gateway: "FileGateway"):
         """
         Add a logger to the composer.
         """
         if name in self._loggers:
             raise ValueError(f"Logger {name} already exists.")
-        logger.
+        logger._level = self.level
         self._loggers[name] = (logger, file_location, gateway)
 
     def remove_logger(self, name: str):
@@ -115,8 +148,6 @@ class LoggerComposer:
         """
         return self._loggers
 
-
-
     def get_gateway_if_exists(self, file: str) -> Optional['FileGateway']:
         """
         Returns file gateway if exists. Otherwise, returns None.
@@ -124,8 +155,8 @@ class LoggerComposer:
         for logger in self._loggers.values():
             if logger[1] == file:
                 return logger[2]
-            else:
-                return None
+        return None
+
     def stop_everything(self):
         """
         Stop all loggers. Use this after the app is done.
@@ -134,6 +165,13 @@ class LoggerComposer:
             logger[0].stop()
             logger[2].stop()
         self._loggers = {}
+
+    def set_level_if_not_set(self):
+        """
+        Set the level of all loggers if not set.
+        """
+        for logger in self._loggers.values():
+            logger[0].set_level(self.level)
 
 
 class ComposerMeta(type):
@@ -149,7 +187,7 @@ class ComposerMeta(type):
                 composer = LoggerComposer.get_instance()
                 return composer
             except RuntimeError:
-                composer = LoggerComposer()
+                composer = LoggerComposer(loglevel="DEBUG")
                 LoggerComposer.set_instance(composer)
                 cls._instance = composer
         return cls._instance
@@ -200,35 +238,13 @@ class ComposerMeta(type):
 
 
 
-class LogLevel(enum.Enum):
-    SIGSTOP = -1
-    DEBUG = 0
-    INFO = 1
-    WARNING = 2
-    ERROR = 3
-    FATAL = 4
-    EXCEPTION = 5
-    QUIET = 6
-    NOTSET = 7
+
 
 class RotType(enum.Enum):
     NONE = 0
     TIME = 1
     SIZE = 2
     TIME_SIZE = 3
-
-class LogPolicy(enum.Enum):
-    """
-    LogPolicy enum, represents what to do in the situation of failed flush of logger.
-    NONE - placeholder. Better set to PRINT, LOOSE, or KEEP
-    PRINT - print the buffer to stdout and clear it
-    LOOSE - clear the buffer and continue
-    KEEP - keep the buffer, and try to flush again.
-    """
-    NONE = 0
-    PRINT = 1
-    LOOSE = 2
-    KEEP = 3
 
 class Logger(BaseLogger, metaclass=ComposerMeta):
     """
@@ -308,21 +324,8 @@ class Logger(BaseLogger, metaclass=ComposerMeta):
         """
         Apply decorations to the message.
         """
-        if level == LogLevel.DEBUG:
-            level_string = "DEBUG"
-        elif level == LogLevel.INFO:
-            level_string = "INFO"
-        elif level == LogLevel.WARNING:
-            level_string = "WARNING"
-        elif level == LogLevel.ERROR:
-            level_string = "ERROR"
-        elif level == LogLevel.FATAL:
-            level_string = "FATAL"
-        elif level == LogLevel.EXCEPTION:
-            level_string = "EXCEPTION"
-        else:
-            level_string = "NOTSET"
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        level_string = reversed_loglevel_dict.get(level.value, "UNKNOWN")
+        timestamp = datetime.now().strftime("%m-%d_%H:%M:%S")
         return f"[{timestamp} - {self.name}/{level_string}] -> {message}"
 
     async def _process_queue(self):
@@ -388,7 +391,7 @@ class FileGateway:
 
     def rotate_if_needed(self, time_amt: Optional[int] = None, size_amt: Optional[int] = None):
         if self._rot_type == RotType.NONE:
-            return
+            return False
 
         if self._rot_type == RotType.SIZE:
             if size_amt is not None and size_amt >= self._rot_amt:
@@ -400,6 +403,7 @@ class FileGateway:
             if time_amt is not None and size_amt is not None:
                 if time_amt - self._start_stamp > self._rot_amt[0] or size_amt >= self._rot_amt[1]:
                     return True
+        return False
 
     async def _rotate_file(self):
         self._processing_task.cancel()

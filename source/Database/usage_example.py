@@ -15,7 +15,7 @@ async def main():
     await db.create_channel(id=-10003, name="NegIdTest")
 
     # Создать пользователя
-    await db.create_user(id=12345, name="User")
+    await db.create_user(user_id=12345, name="User")
 
     # Подписываем пользователя на два канала
     await db.update_user_channels(user_id=12345, add=[10001, 10002])

@@ -77,8 +77,9 @@ class LoggerComposer:
             )
         return cls._instance
 
-    def __init__(self):
+    def __init__(self, loglevel: "LogLevel"):
         self._loggers = {}
+        self.level = loglevel
 
     def __contains__(self, item):
         return item in self._loggers
@@ -97,6 +98,7 @@ class LoggerComposer:
         """
         if name in self._loggers:
             raise ValueError(f"Logger {name} already exists.")
+        logger.
         self._loggers[name] = (logger, file_location, gateway)
 
     def remove_logger(self, name: str):
@@ -112,6 +114,8 @@ class LoggerComposer:
         Get all loggers.
         """
         return self._loggers
+
+
 
     def get_gateway_if_exists(self, file: str) -> Optional['FileGateway']:
         """

@@ -29,6 +29,19 @@ class RagClient(Injectable):
         )
         self.mistral_model = mistral_model
 
+    async def delete_channel(self, channel_id: int):
+        """
+        Deletes a channel from the database.
+        """
+        if not self.running:
+            return
+        collection = self.client.get_collection(str(channel_id))
+        if collection:
+            self.client.delete_collection(str(channel_id))
+            await rag_logger.info(f"Deleted collection {channel_id} from RAG database.")
+        else:
+            await rag_logger.warning(f"Collection {channel_id} not found in RAG database.")
+
     async def query(self, user_id: int, request: str, channel_ids: List[int]):
         """
         Adds a query to the queue for processing.
@@ -139,7 +152,7 @@ class RagClient(Injectable):
                 ]
             )
             elapsed = time.monotonic() - start
-            await self.rag_response_queue.put((user_id, response))
+            await self.rag_response_queue.put((user_id, response["choices"][0]["message"]["content"]))
             await rag_logger.info(f"Generated response for {user_id} in {elapsed:.2f} seconds")
 
     def stop(self):

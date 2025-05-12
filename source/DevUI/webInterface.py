@@ -226,4 +226,9 @@ class WebInterface:
         """
         return web.json_response(self._processes_stats)
 
-
+    async def stop(self):
+        """
+        Stops the web interface.
+        """
+        await self.app.shutdown()
+        await self.app.cleanup()

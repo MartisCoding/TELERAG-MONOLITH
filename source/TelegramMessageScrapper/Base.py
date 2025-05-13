@@ -8,7 +8,7 @@ from pyrogram.enums import ChatType
 from dataclasses import dataclass
 from source.Logging import Logger
 from typing import Any, Dict, List, Tuple
-
+from pyrogram.errors import PeerIdInvalid, ChatAdminRequired, ChatWriteForbidden, UserAlreadyParticipant
 
 
 class ScrapSIG(enum.Enum):
@@ -55,26 +55,32 @@ class Scrapper:
         """
         Updates the state of scrapper by adding or deleting channels.
         """
-        # Validate if the channel_id is channel and not user or group
+        # Validate if the id is channel and not user or group
         if not self.running:
             return
 
         await self.scrapper_logger.debug("Got update request... Updating channels...")
         for records in records:
             try:
-                chat = await self.pyro_client.get_chat(records.channel_id)
+                try:
+                    print(f"Trying to get chat {records.channel_id}")
+                    chat = await self.pyro_client.get_chat(records.channel_id)
+                except Exception as e:
+                    try:
+                        print(f"Trying to join then get chat {records.channel_id}")
+                        await self.pyro_client.join_chat(records.channel_id)
+                        chat = await self.pyro_client.get_chat(records.channel_id)
+                    except (PeerIdInvalid, ChatAdminRequired, ChatWriteForbidden, UserAlreadyParticipant, Exception) as e:
+                        print("Error while joining chat: ", e)
+                        raise ValueError("Error while joining chat: " + str(e))
+
                 if chat.type != ChatType.CHANNEL:
-                    raise self.ScrapperException(
-                        where="Scrapper.update()",
-                        what="Invalid channel type",
-                        summary=f"Channel {records.channel_id} is not a channel.",
-                    )
+                    await self.pyro_client.leave_chat(records.channel_id)
+                    raise ValueError("Channel ID is not a channel")
                 if records.action == ScrapSIG.SUB:
                     if records.channel_id in self.channels_and_messages.keys():
                         raise ValueError("Channel already subscribed")
-                    await self.pyro_client.join_chat(records.channel_id)
-                    chat = await self.pyro_client.get_chat(records.channel_id)
-                    self.channels_and_messages[records.channel_id] = (chat.first_name, [])
+                    self.channels_and_messages[records.channel_id] = (chat.title, [])
                     await self.fetch(records.channel_id)
                     await self.update_or_create_message_handler()
                 elif records.action == ScrapSIG.UNSUB:
@@ -140,7 +146,7 @@ class Scrapper:
 
         self.message_handler = message_handler
 
-    async def __aiter__(self):
+    def __aiter__(self):
         self.getting_messages_event.set()
         self._existing_messages_iter = iter(self.channels_and_messages.items())
         self._current_channel_id = None

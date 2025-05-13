@@ -19,12 +19,13 @@ from source.TgUI.States import AddSourceStates
 from source.Logging import Logger
 from source.Database.DBHelper import DataBaseHelper
 from source.ChromaАndRAG.ChromaClient import RagClient
+from source.TelegramMessageScrapper.Base import Scrapper
 import re, asyncio
 
 
 
 class BotApp:
-    def __init__(self, token: str,db_helper: DataBaseHelper, rag: RagClient):
+    def __init__(self, token: str,db_helper: Optional[DataBaseHelper], rag: RagClient, scrapper: Scrapper):
         self.telegram_ui_logger = Logger("TelegramUI", "network.log")
         self.bot = Bot(
             token=token,
@@ -39,12 +40,17 @@ class BotApp:
 
         self.DataBaseHelper = db_helper
         self.RagClient = rag
+        self.Scrapper = scrapper
 
         self.request_queueue = asyncio.Queue()
         self.response_queue = asyncio.Queue()
 
         self._request_task: Optional[asyncio.Task] = None
         self._response_task: Optional[asyncio.Task] = None
+
+    def include_db(self, db_helper: DataBaseHelper):
+        if self.DataBaseHelper is None:
+            self.DataBaseHelper = db_helper
 
     def __include_handlers(self):
         # --- Хэндлеры для сообщений ---
@@ -167,13 +173,16 @@ class BotApp:
                 message.from_user.id,
                 add=[channel_id]
             )
-        except ValueError:
+        except Exception:
             try:
-                await self.DataBaseHelper.create_channel(channel_id, channel_chat.first_name)
+                print("Adding new channel ", channel_chat.title)
+                await self.DataBaseHelper.create_channel(channel_id, channel_chat.title)
+                print("Added new channel ", channel_chat.title)
                 await self.DataBaseHelper.update_user_channels(
-                    message.from_user.id,
+                    user_id=message.from_user.id,
                     add=[channel_id]
                 )
+                print("Updated channels for user", message.from_user.first_name)
             except ValueError:
                 await message.answer(
                     "Канал уже добавлен в источники. Возможно вы уже добавляли его ранее."
@@ -202,7 +211,7 @@ class BotApp:
         for channel in user_channels:
             chat = await self.bot.get_chat(channel)
             if chat:
-                channel_names.append(f"id: {channel}, Имя: {chat.first_name}")
+                channel_names.append(f"id: {channel}, Имя: {chat.title}")
             else:
                 channel_names.append(f"id: {channel}, Имя: Неизвестный канал")
         await message.answer(
@@ -222,7 +231,7 @@ class BotApp:
         for channel in user_channels:
             chat = await self.bot.get_chat(channel)
             if chat:
-                channel_names.append({"id": channel, "name": chat.first_name})
+                channel_names.append({"id": channel, "name": chat.title})
             else:
                 channel_names.append({"id": channel, "name": "Неизвестный канал"})
 

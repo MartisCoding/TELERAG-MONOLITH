@@ -15,25 +15,22 @@ from source.ChromaАndRAG.ChromaClient import RagClient
 
 
 class DataBaseHelper:
-    def __init__(self, db: AsyncIOMotorDatabase, scrapper: Scrapper, rag: RagClient):
+    def __init__(self, db: AsyncIOMotorDatabase):
         self.mongo_db_logger = Logger("MongoDB", "network.log")
         self.db = db
         self.users: AsyncIOMotorCollection = db["users"]
         self.channels: AsyncIOMotorCollection = db["channels"]
-        self.RagClient = rag
-        self.Scrapper = scrapper
+
 
     @classmethod
     async def create(
         cls,
         uri: str = "",
         db_name: str = "",
-        scrapper: Scrapper = None,
-        rag: RagClient = None,
     ) -> "DataBaseHelper":
         client = AsyncIOMotorClient(uri)
         db = client[db_name]
-        self = cls(db, scrapper, rag)
+        self = cls(db)
         await self._setup()
         await self.mongo_db_logger.info("MongoDB connected")
         return self
@@ -112,15 +109,14 @@ class DataBaseHelper:
         return UserModel(**doc)
 
     async def create_channel(self, channel_id: int, name: str) -> None:
-        if await self.channels.find_one({"_id": id}):
+        if await self.channels.find_one({"_id": channel_id}):
             await self.mongo_db_logger.warning(f"Channel '{channel_id}' already exists. Will not create one.")
             raise ValueError("Channel already exists")
+        print("Created channel " + str(name))
         channel = ChannelModel(_id=channel_id, name=name)
         await self.channels.insert_one(channel.dict(by_alias=True))
 
-        # Add channel to Scrapper
-        self.Scrapper.update([ChannelRecord(channel_id=channel_id, action=ScrapSIG.SUB)])
-        await self.mongo_db_logger.info(f"Channel '{channel_id}' created and added to scrapper")
+
 
     async def delete_channel(self, channel_id: int) -> None:
         doc = await self.channels.find_one({"_id": channel_id})
@@ -132,13 +128,9 @@ class DataBaseHelper:
 
         await self.channels.delete_one({"_id": channel_id})
 
-        # Remove channel from Scrapper and RAG client
-        self.Scrapper.update([ChannelRecord(channel_id=channel_id, action=ScrapSIG.UNSUB)])
-        await self.RagClient.delete_channel(channel_id)
-        await self.mongo_db_logger.info(f"Channel '{channel_id}' deleted and removed from scrapper and RAG client")
 
     async def get_channel(self, channel_id: int) -> ChannelModel:
-        doc = await self.channels.find_one({"_id": channel_id})
+        doc = await self.channels.find_one({"id": channel_id})
         if not doc:
             raise ValueError("Channel not found")
         return ChannelModel(**doc)
@@ -158,7 +150,7 @@ class DataBaseHelper:
             await self.channels.delete_one({"_id": channel_id})
         else:
             await self.channels.update_one(
-                {"_id": channel_id},
+                {"id": channel_id},
                 {"$inc": {"subscribers": -1}}
             )
 

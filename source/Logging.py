@@ -279,6 +279,7 @@ class Logger(BaseLogger, metaclass=ComposerMeta):
         """
         Initialize the logger.
         """
+        print("Initialized logger " + name + " at " + file)
         self.name = name
         self._level = LogLevel.NOTSET
         self._buffer = []
@@ -379,6 +380,7 @@ class FileGateway:
     Class made to isolate file interactions from logger or multiple loggers.
     """
     def __init__(self, file_loc: str):
+        print("Started Logging at " + file_loc)
         self.file_loc = file_loc
         self._start_stamp = int(datetime.now().timestamp())
         self._message_stream: asyncio.Queue[str] = asyncio.Queue()

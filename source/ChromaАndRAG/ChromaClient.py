@@ -1,23 +1,21 @@
-import asyncio, re, mistralai, time
-from chromadb import Client
+import asyncio, re, time
+from chromadb import HttpClient
 from hashlib import sha256
-from chromadb.config import Settings
 from source.Logging import Logger
 from source.TelegramMessageScrapper.Base import Scrapper
 from sentence_transformers import SentenceTransformer
 from typing import List, Tuple, Optional
-
+from openai import OpenAI
 
 
 class RagClient:
-    def __init__(self, host: str, port: int, n_result: int, model: str, mistral_api_key: str, mistral_model: str, scrapper: Scrapper,):
+    def __init__(self, host: str, port: int, n_result: int, model: str, mistral_api_key: str, mistral_model: str, scrapper: Scrapper):
         self.rag_logger = Logger("RAG_module", "network.log")
-        self.client = Client(
-            Settings(
-                chroma_db_impl="rest",
-                chroma_server_host=host,
-                chroma_server_http_port=port,
-            )
+        self.client = HttpClient(
+            port=port,
+            host=host,
+            ssl=False,
+            headers=None
         )
         self.Scrapper = scrapper
         self.channel_request_queue: asyncio.Queue[Tuple[int, str, List[int]]] = asyncio.Queue()
@@ -25,11 +23,11 @@ class RagClient:
         self.SentenceTransformer = SentenceTransformer(model)
         self.running = True
         self.n_result = n_result
-        self.mistral_client = mistralai.Mistral(
-            api_key=mistral_api_key
+        self.mistral_client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=mistral_api_key,
         )
-        self.mistral_model = mistral_model
-
+        self.mistral_model_str = mistral_model
         self._query_task: Optional[asyncio.Task] = None
         self._data_task: Optional[asyncio.Task] = None
 
@@ -87,7 +85,7 @@ class RagClient:
         self._data_task = asyncio.create_task(self._data_loop())
 
     async def _data_loop(self):
-        self.Scrapper.getting_messages_event.wait()
+        await self.Scrapper.getting_messages_event.wait()
         async for channel_id, channel_name, msg in self.Scrapper:
             if not self.running:
                 break
@@ -127,8 +125,10 @@ class RagClient:
 
             responses_text = [response[0] + " " + ", ".join(response[1]) + "\n" for response in responses]
             # Insert model here.
-            response = self.mistral_client.chat.complete(
-                model=self.mistral_model,
+            response = self.mistral_client.chat.completions.create(
+                extra_headers={},
+                extra_body={},
+                model=self.mistral_model_str,
                 messages=[
                     {
                         "role": "system",
@@ -147,7 +147,7 @@ class RagClient:
                 ]
             )
             elapsed = time.monotonic() - start
-            await self.rag_response_queue.put((user_id, response["choices"][0]["message"]["content"]))
+            await self.rag_response_queue.put((user_id, response.choices[0].message.content))
             await self.rag_logger.info(f"Generated response for {user_id} in {elapsed:.2f} seconds")
 
     def stop(self):

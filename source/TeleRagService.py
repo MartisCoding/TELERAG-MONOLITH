@@ -10,11 +10,12 @@ from source.DynamicConfigurationLoading import TGConfig
 
 class TeleRagService:
     """
-    The TeleragService class is responsible for managing the Telegram message scrapper and the RAG client.
+    The Tele rag Service class is responsible for managing the Telegram message scrapper and the RAG client.
     It handles the initialization, updating, and querying of channels and messages.
     """
 
     def __init__(self, settings: TGConfig):
+        self.settings = settings
         self.logger_composer = LoggerComposer(
             loglevel=settings.LOG_LEVEL,
         )
@@ -34,17 +35,18 @@ class TeleRagService:
             scrapper=self.Scrapper,
         )
 
-        asyncio.create_task(self.__create_db(settings))
+
         self.BotApp = BotApp(
             token=settings.AIOGRAM_API_KEY,
             rag=self.RagClient,
-            db_helper=self.DataBaseHelper,
+            db_helper=None,
         )
         self.logger_composer.set_level_if_not_set()
         self.stop_event = asyncio.Event()
         self.register_stop_signal_handler()
 
     async def start(self):
+        await self.__create_db(self.settings)
         await self.tele_rag_logger.info("Starting TeleRagService...")
         await self.RagClient.start_rag()
         await self.Scrapper.scrapper_start()
@@ -73,17 +75,17 @@ class TeleRagService:
         loop.add_signal_handler(signal.SIGTERM, self.__stop_signal_handler, )
         loop.add_signal_handler(signal.SIGINT, self.__stop_signal_handler, )
 
-    async def __create_db(self, settings):
+    async def __create_db(self, settings: TGConfig):
         self.DataBaseHelper = await DataBaseHelper.create(
             uri=self.construct_url(settings),
-            db_name=settings.Mongo.DB_NAME,
-            scrapper=self.Scrapper,
-            rag=self.RagClient,
+            db_name=settings.MONGO_DATABASE_NAME,
         )
+        self.BotApp.include_db(self.DataBaseHelper)
+        del self.settings
 
     @staticmethod
-    def construct_url(settings):
+    def construct_url(settings: TGConfig):
         """
         Construct the MongoDB URI from the settings.
         """
-        return f"mongodb://{settings.Mongo.USER}:{settings.Mongo.PASSWORD}@{settings.Mongo.HOST}:{settings.Mongo.PORT}/"
+        return f"mongodb://{settings.MONGO_USERNAME}:{settings.MONGO_PASSWORD}@{settings.MONGO_HOST}:{settings.MONGO_PORT}/"

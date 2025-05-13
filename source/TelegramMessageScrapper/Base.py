@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from source.Logging import Logger
 from typing import Any, Dict, List, Tuple
 
-scrapper_logger = Logger("Scrapper", "network.log")
+
 
 class ScrapSIG(enum.Enum):
     SUB = 0
@@ -29,6 +29,7 @@ class Scrapper:
         pass
 
     def __init__(self, api_id: str, api_hash: str, history_limit: int):
+        self.scrapper_logger = Logger("Scrapper", "network.log")
         self.pyro_client = Client(
             name="TELERAG-MessageScrapper",
             api_id=api_id,
@@ -58,7 +59,7 @@ class Scrapper:
         if not self.running:
             return
 
-        await scrapper_logger.debug("Got update request... Updating channels...")
+        await self.scrapper_logger.debug("Got update request... Updating channels...")
         for records in records:
             try:
                 chat = await self.pyro_client.get_chat(records.channel_id)
@@ -84,7 +85,7 @@ class Scrapper:
                     del self.channels_and_messages[records.channel_id]
                     await self.update_or_create_message_handler()
             except self.ScrapperException as e:
-                await scrapper_logger.warning("An error occurred while updating the scrapper: " + str(e) + "Skipping this channel.")
+                await self.scrapper_logger.warning("An error occurred while updating the scrapper: " + str(e) + "Skipping this channel.")
 
 
     async def fetch(self, channel_id: int):
@@ -101,15 +102,15 @@ class Scrapper:
                 if message.text:
                     msgs.append(message.text)
                 else:
-                    await scrapper_logger.debug(f"Message {message.message_id} in channel {channel_id} is not a text message. Skipping.")
+                    await self.scrapper_logger.debug(f"Message {message.message_id} in channel {channel_id} is not a text message. Skipping.")
         except Exception as e:
-            await scrapper_logger.warning(f"An error occurred while fetching messages from channel {channel_id}: {e}")
+            await self.scrapper_logger.warning(f"An error occurred while fetching messages from channel {channel_id}: {e}")
         finally:
             if msgs:
                 self.channels_and_messages[channel_id][1].extend(msgs)
-                await scrapper_logger.debug(f"Fetched {len(msgs)} messages from channel {channel_id}.")
+                await self.scrapper_logger.debug(f"Fetched {len(msgs)} messages from channel {channel_id}.")
             else:
-                await scrapper_logger.debug(f"No messages fetched from channel {channel_id}.")
+                await self.scrapper_logger.debug(f"No messages fetched from channel {channel_id}.")
 
     async def update_or_create_message_handler(self) -> None:
         """
@@ -133,9 +134,9 @@ class Scrapper:
                     await self.new_message_queue.put((message.chat.id, chat_name, message.text))
                 else:
                     self.channels_and_messages[message.chat.id][1].append(message.text)
-                await scrapper_logger.debug(f"Got new message from channel {message.chat.id}: {message.text}")
+                await self.scrapper_logger.debug(f"Got new message from channel {message.chat.id}: {message.text}")
             else:
-                await scrapper_logger.debug(f"Message {message.message_id} in channel {message.chat.id} is not a text message. Skipping.")
+                await self.scrapper_logger.debug(f"Message {message.message_id} in channel {message.chat.id} is not a text message. Skipping.")
 
         self.message_handler = message_handler
 
@@ -171,7 +172,7 @@ class Scrapper:
         The main loop of the scrapper. It runs in a separate process and handles the incoming messages.
         """
         await self.pyro_client.start()
-        await scrapper_logger.debug("Scrapper started.")
+        await self.scrapper_logger.debug("Scrapper started.")
         self.running = True
 
     async def scrapper_stop(self):
@@ -179,6 +180,6 @@ class Scrapper:
         Stops the scrapper.
         """
         await self.pyro_client.stop()
-        await scrapper_logger.debug("Scrapper stopped.")
+        await self.scrapper_logger.debug("Scrapper stopped.")
         self.running = False
 

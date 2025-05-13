@@ -1,1 +1,2 @@
-from TeleRagService import TeleRagService
+from source.TeleRagService import TeleRagService
+from source.DynamicConfigurationLoading import get_config

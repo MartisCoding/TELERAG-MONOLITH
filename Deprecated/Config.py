@@ -4,6 +4,9 @@ from functools import lru_cache
 
 
 class Settings(BaseSettings):
+
+
+
     # AIOGRAM BOT
     BOT_TOKEN: str
 

@@ -160,6 +160,7 @@ class LoggerComposer:
         if name in self._loggers:
             raise ValueError(f"Logger {name} already exists.")
         logger._level = self.level
+        gateway.start()
         self._loggers[name] = (logger, file_location, gateway)
 
     def remove_logger(self, name: str):
@@ -381,10 +382,18 @@ class FileGateway:
         self.file_loc = file_loc
         self._start_stamp = int(datetime.now().timestamp())
         self._message_stream: asyncio.Queue[str] = asyncio.Queue()
-        self._processing_task = asyncio.create_task(self._stream_process())
+        self._processing_task: Optional[asyncio.Task] = None
         self._logging = True
         self._rot_type = RotType.NONE
         self._rot_amt = None
+
+    def start(self):
+        """
+        Start the file gateway.
+        """
+        if self._processing_task is not None:
+            return
+        self._processing_task = asyncio.create_task(self._stream_process())
 
     async def enqueue(self, message: str):
         await self._message_stream.put(message)
@@ -427,6 +436,11 @@ class FileGateway:
             pass
 
         self._start_stamp = int(datetime.now().timestamp())
+        try:
+            self._processing_task = asyncio.create_task(self._stream_process())
+        except Exception:
+            await asyncio.sleep(1)
+
         self._processing_task = asyncio.create_task(self._stream_process())
 
     @staticmethod

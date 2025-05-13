@@ -20,11 +20,12 @@ from source.Logging import Logger
 from source.Database.DBHelper import DataBaseHelper
 from source.ChromaАndRAG.ChromaClient import RagClient
 import re, asyncio
-telegram_ui_logger = Logger("TelegramUI", "network.log")
+
 
 
 class BotApp:
     def __init__(self, token: str,db_helper: DataBaseHelper, rag: RagClient):
+        self.telegram_ui_logger = Logger("TelegramUI", "network.log")
         self.bot = Bot(
             token=token,
             default=DefaultBotProperties(
@@ -71,7 +72,7 @@ class BotApp:
         self.router.callback_query.register(self.__inline_button_handler)
 
     async def __start_handler(self, message: Message):
-        await telegram_ui_logger.info(f"User {message.from_user.id} started the bot.")
+        await self.telegram_ui_logger.info(f"User {message.from_user.id} started the bot.")
 
         await self.bot.set_my_commands([
             BotCommand(command="/start", description="Начать работу с ботом"),
@@ -328,7 +329,7 @@ class BotApp:
         try:
             user = await self.DataBaseHelper.get_user(message.from_user.id)
         except ValueError:
-            await telegram_ui_logger.error("Could not get user from DB.")
+            await self.telegram_ui_logger.error("Could not get user from DB.")
             await message.answer(
                 "Вы не зарегистрированы в системе. Пожалуйста, добавьте источник, чтобы получить доступ к этой функции."
             )
@@ -336,7 +337,7 @@ class BotApp:
 
         user_channels: list[int] = user.channels
         if not user_channels:
-            await telegram_ui_logger.error("User has no channels. Or there is something wrong with DB.")
+            await self.telegram_ui_logger.error("User has no channels. Or there is something wrong with DB.")
             await message.answer(
                 "У вас нет добавленных источников. Пожалуйста, добавьте хотя бы один источник."
             )
@@ -354,17 +355,17 @@ class BotApp:
     async def __request_loop(self):
         while True:
             user_id, request, channel_ids = await self.request_queueue.get()
-            await telegram_ui_logger.info(f"Started processing RAG request for {user_id} with request: {request}.")
+            await self.telegram_ui_logger.info(f"Started processing RAG request for {user_id} with request: {request}.")
             await self.RagClient.query(user_id, request, channel_ids)
 
     async def __response_loop(self):
         while True:
             user_id, response = await self.RagClient.rag_response_queue.get()
-            await telegram_ui_logger.info(f"Got response from RAG for {user_id}")
+            await self.telegram_ui_logger.info(f"Got response from RAG for {user_id}")
             try:
                 await self.bot.send_message(user_id, response)
             except Exception as e:
-                await telegram_ui_logger.error(f"Failed to send message to {user_id}: {e}")
+                await self.telegram_ui_logger.error(f"Failed to send message to {user_id}: {e}")
 
 
 

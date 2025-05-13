@@ -40,7 +40,7 @@ Usage:
 
 import enum
 from typing import Dict, Optional, Any
-from Core.ErrorHandling import CoreException
+from Deprecated.ErrorHandling import CoreException
 from types import MappingProxyType
 import inspect
 

@@ -103,8 +103,8 @@ import enum, multiprocessing as mp, time, heapq, asyncio, inspect, psutil
 from typing import Callable, Optional, Any, Tuple, List, Dict, Iterable
 from source.Logging import Logger, LogLevel
 from dataclasses import dataclass
-from Core.CoreUtils import time_type_dict
-from Core.Profiling import Profiler
+from Deprecated.CoreUtils import time_type_dict
+from Deprecated.Profiling import Profiler
 
 task_scheduler_logger = Logger("TaskScheduler", "runtime.log")
 process_logger = Logger("Process", "runtime.log")

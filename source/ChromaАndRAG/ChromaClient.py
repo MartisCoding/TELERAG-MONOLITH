@@ -7,10 +7,11 @@ from source.TelegramMessageScrapper.Base import Scrapper
 from sentence_transformers import SentenceTransformer
 from typing import List, Tuple, Optional
 
-rag_logger = Logger("RAG_module", "network.log")
+
 
 class RagClient:
     def __init__(self, host: str, port: int, n_result: int, model: str, mistral_api_key: str, mistral_model: str, scrapper: Scrapper,):
+        self.rag_logger = Logger("RAG_module", "network.log")
         self.client = Client(
             Settings(
                 chroma_db_impl="rest",
@@ -41,9 +42,9 @@ class RagClient:
         collection = self.client.get_collection(str(channel_id))
         if collection:
             self.client.delete_collection(str(channel_id))
-            await rag_logger.info(f"Deleted collection {channel_id} from RAG database.")
+            await self.rag_logger.info(f"Deleted collection {channel_id} from RAG database.")
         else:
-            await rag_logger.warning(f"Collection {channel_id} not found in RAG database.")
+            await self.rag_logger.warning(f"Collection {channel_id} not found in RAG database.")
 
     async def query(self, user_id: int, request: str, channel_ids: List[int]):
         """
@@ -99,7 +100,7 @@ class RagClient:
                     metadatas=[{"channel_name": channel_name}],
                     ids=[sha256(chunk.encode('utf-8')).hexdigest()],
                 )
-            await rag_logger.info(f"Added new message to collection {channel_id} ({channel_name})")
+            await self.rag_logger.info(f"Added new message to collection {channel_id} ({channel_name})")
 
     async def _query_loop(self):
         while True:
@@ -107,7 +108,7 @@ class RagClient:
             if not self.running:
                 break
             user_id, request, channel_ids = await self.channel_request_queue.get()
-            await rag_logger.info(f"Started processing RAG request for {user_id} with request: {request}.")
+            await self.rag_logger.info(f"Started processing RAG request for {user_id} with request: {request}.")
             responses = []
             for channel_id in channel_ids:
                 collection = self.client.get_collection(str(channel_id))
@@ -147,7 +148,7 @@ class RagClient:
             )
             elapsed = time.monotonic() - start
             await self.rag_response_queue.put((user_id, response["choices"][0]["message"]["content"]))
-            await rag_logger.info(f"Generated response for {user_id} in {elapsed:.2f} seconds")
+            await self.rag_logger.info(f"Generated response for {user_id} in {elapsed:.2f} seconds")
 
     def stop(self):
         """

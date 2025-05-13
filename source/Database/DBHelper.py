@@ -9,14 +9,14 @@ from pymongo.errors import CollectionInvalid
 from source.Logging import Logger
 
 from source.Database.Models import UserModel, ChannelModel
-from source.Config import settings
 from source.TelegramMessageScrapper.Base import Scrapper, ScrapSIG, ChannelRecord
 from source.ChromaАndRAG.ChromaClient import RagClient
 
-mongo_db_logger = Logger("MongoDB", "network.log")
+
 
 class DataBaseHelper:
     def __init__(self, db: AsyncIOMotorDatabase, scrapper: Scrapper, rag: RagClient):
+        self.mongo_db_logger = Logger("MongoDB", "network.log")
         self.db = db
         self.users: AsyncIOMotorCollection = db["users"]
         self.channels: AsyncIOMotorCollection = db["channels"]
@@ -26,8 +26,8 @@ class DataBaseHelper:
     @classmethod
     async def create(
         cls,
-        uri: str = settings.MONGO_URL,
-        db_name: str = settings.MONGO_DB,
+        uri: str = "",
+        db_name: str = "",
         scrapper: Scrapper = None,
         rag: RagClient = None,
     ) -> "DataBaseHelper":
@@ -35,7 +35,7 @@ class DataBaseHelper:
         db = client[db_name]
         self = cls(db, scrapper, rag)
         await self._setup()
-        await mongo_db_logger.info("MongoDB connected")
+        await self.mongo_db_logger.info("MongoDB connected")
         return self
 
     async def _setup(self) -> None:
@@ -44,16 +44,16 @@ class DataBaseHelper:
             try:
                 await self.db.create_collection("users")
             except CollectionInvalid:
-                await mongo_db_logger.warning("Collection 'users' already exists")
+                await self.mongo_db_logger.warning("Collection 'users' already exists")
         if "channels" not in collections:
             try:
                 await self.db.create_collection("channels")
             except CollectionInvalid:
-                await mongo_db_logger.warning("Collection 'channels' already exists")
+                await self.mongo_db_logger.warning("Collection 'channels' already exists")
 
     async def create_user(self, user_id: int, name: str) -> None:
         if await self.users.find_one({"_id": user_id}):
-            await mongo_db_logger.warning(f"User '{user_id}' already exists")
+            await self.mongo_db_logger.warning(f"User '{user_id}' already exists")
             raise ValueError("User already exists")
         user = UserModel(
             name=name,
@@ -64,7 +64,7 @@ class DataBaseHelper:
     async def delete_user(self, user_id: int) -> None:
         user_doc = await self.users.find_one({"_id": user_id})
         if not user_doc:
-            await mongo_db_logger.warning(f"User '{user_id}' not found")
+            await self.mongo_db_logger.warning(f"User '{user_id}' not found")
             raise ValueError("User not found")
 
         user = UserModel(**user_doc)
@@ -113,14 +113,14 @@ class DataBaseHelper:
 
     async def create_channel(self, channel_id: int, name: str) -> None:
         if await self.channels.find_one({"_id": id}):
-            await mongo_db_logger.warning(f"Channel '{channel_id}' already exists. Will not create one.")
+            await self.mongo_db_logger.warning(f"Channel '{channel_id}' already exists. Will not create one.")
             raise ValueError("Channel already exists")
         channel = ChannelModel(_id=channel_id, name=name)
         await self.channels.insert_one(channel.dict(by_alias=True))
 
         # Add channel to Scrapper
         self.Scrapper.update([ChannelRecord(channel_id=channel_id, action=ScrapSIG.SUB)])
-        await mongo_db_logger.info(f"Channel '{channel_id}' created and added to scrapper")
+        await self.mongo_db_logger.info(f"Channel '{channel_id}' created and added to scrapper")
 
     async def delete_channel(self, channel_id: int) -> None:
         doc = await self.channels.find_one({"_id": channel_id})
@@ -135,7 +135,7 @@ class DataBaseHelper:
         # Remove channel from Scrapper and RAG client
         self.Scrapper.update([ChannelRecord(channel_id=channel_id, action=ScrapSIG.UNSUB)])
         await self.RagClient.delete_channel(channel_id)
-        await mongo_db_logger.info(f"Channel '{channel_id}' deleted and removed from scrapper and RAG client")
+        await self.mongo_db_logger.info(f"Channel '{channel_id}' deleted and removed from scrapper and RAG client")
 
     async def get_channel(self, channel_id: int) -> ChannelModel:
         doc = await self.channels.find_one({"_id": channel_id})

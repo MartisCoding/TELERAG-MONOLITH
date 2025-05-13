@@ -6,7 +6,7 @@ from source.TgUI.BotApp import BotApp
 from source.ChromaАndRAG.ChromaClient import RagClient
 from source.TelegramMessageScrapper.Base import Scrapper
 
-
+from source.DynamicConfigurationLoading import TGConfig
 
 class TeleRagService:
     """
@@ -14,29 +14,29 @@ class TeleRagService:
     It handles the initialization, updating, and querying of channels and messages.
     """
 
-    def __init__(self, settings):
+    def __init__(self, settings: TGConfig):
         self.logger_composer = LoggerComposer(
-            loglevel=settings.Core.LOG_LEVEL,
+            loglevel=settings.LOG_LEVEL,
         )
         self.tele_rag_logger = Logger("TeleRag", "network.log")
         self.Scrapper = Scrapper(
-            api_id=settings.Pyrogram.PYRO_TELEGRAM_API_ID,
-            api_hash=settings.Pyrogram.PYRO_TELEGRAM_API_HASH,
-            history_limit=settings.Pyrogram.PYRO_TELEGRAM_HISTORY_LIMIT,
+            api_id=settings.PYRO_API_ID,
+            api_hash=settings.PYRO_API_HASH,
+            history_limit=settings.PYRO_HISTORY_LIMIT,
         )
         self.RagClient = RagClient(
-            host=settings.Rag.RAG_HOST,
-            port=settings.Rag.RAG_PORT,
-            n_result=settings.Rag.N_RESULT,
-            model=settings.Rag.SENTENCE_TRANSFORMER_MODEL,
-            mistral_api_key=settings.Rag.MISTRAL_API_KEY,
-            mistral_model=settings.Rag.MISTRAL_MODEL,
+            host=settings.RAG_HOST,
+            port=settings.RAG_PORT,
+            n_result=settings.RAG_N_RESULT,
+            model=settings.SENTENCE_TRANSFORMER_MODEL,
+            mistral_api_key=settings.MISTRAL_API_KEY,
+            mistral_model=settings.MISTRAL_API_MODEL,
             scrapper=self.Scrapper,
         )
 
         asyncio.create_task(self.__create_db(settings))
         self.BotApp = BotApp(
-            token=settings.Aiogram.TELEGRAM_TOKEN,
+            token=settings.AIOGRAM_API_KEY,
             rag=self.RagClient,
             db_helper=self.DataBaseHelper,
         )

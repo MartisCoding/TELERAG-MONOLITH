@@ -37,11 +37,10 @@ import asyncio, enum, sys, os, aiofiles
 from datetime import datetime
 from types import MappingProxyType
 from typing import Optional
-from source.Core.ErrorHandling import CoreException
 from source.Core.CoreUtils import size_type_dict, time_type_dict
-class LoggingCreationException(CoreException):
+class LoggingCreationException(Exception):
     pass
-class LoggingCancellation(CoreException):
+class LoggingCancellation(Exception):
     pass
 
 class LogLevel(enum.Enum):
@@ -224,14 +223,10 @@ class ComposerMeta(type):
         try:
             composer.add_logger(logger_name, logger, logfile_location, gateway)
             return logger
-        except ValueError:
-            raise LoggingCreationException(
-                where="ComposerMeta.__call__",
-                what="Could not register logger instance to composer.",
-                summary="Unexpected exception while registering logger to composer. This error is genuinely impossible,"
-                        "because if name exists, you would get already existing instance. However, you're lucky enough to reach that exception."
-                        "Report the Core module developer if you see this.",
-            )
+        except Exception as e:
+            raise ValueError("Failed to add logger to composer.") from e
+
+
 
 
 
@@ -276,12 +271,7 @@ class Logger(BaseLogger, metaclass=ComposerMeta):
         Create the logger. It creates the log file and starts the logging loop.
         """
         if self._queue_processing_task is not None or self._logging is False:
-            raise LoggingCreationException(
-                where=f"Logger({self.name}).create",
-                what="Logger already created",
-                summary="Do not try to create logger twice. It will not work. You will get an exception.",
-                fatal=False,
-            )
+            return
         self._queue_processing_task = asyncio.create_task(self._process_queue())
         self._logging = True
 
@@ -333,12 +323,7 @@ class Logger(BaseLogger, metaclass=ComposerMeta):
             try:
                 level, msg = await self._message_queue.get()
                 if msg is None:
-                    raise LoggingCancellation(
-                        where=f"Logger({self.name})._process_queue",
-                        what=f"Logger {self.name} was stopped",
-                        summary="",
-                        fatal=False,
-                    )
+                    break
                 message = self._apply_decorations(level, msg)
                 await self._file_gateway.enqueue(message)
             except (asyncio.CancelledError, LoggingCancellation):

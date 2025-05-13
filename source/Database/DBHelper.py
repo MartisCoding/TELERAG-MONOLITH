@@ -4,9 +4,9 @@ from motor.motor_asyncio import (
     AsyncIOMotorDatabase,
     AsyncIOMotorCollection
 )
-import asyncio
+
 from pymongo.errors import CollectionInvalid
-from source.Core import Injectable, Logger
+from source.Core import Logger
 
 from source.Database.Models import UserModel, ChannelModel
 from source.Config import settings
@@ -15,24 +15,25 @@ from source.ChromaАndRAG.ChromaClient import RagClient
 
 mongo_db_logger = Logger("MongoDB", "network.log")
 
-
-class DataBaseHelper(Injectable):
-    def __init__(self, db: AsyncIOMotorDatabase, Scrapper: Scrapper, RagClient: RagClient):
+class DataBaseHelper:
+    def __init__(self, db: AsyncIOMotorDatabase, scrapper: Scrapper, rag: RagClient):
         self.db = db
         self.users: AsyncIOMotorCollection = db["users"]
         self.channels: AsyncIOMotorCollection = db["channels"]
-        self.RagClient = RagClient
-        self.Scrapper = Scrapper
+        self.RagClient = rag
+        self.Scrapper = scrapper
 
     @classmethod
     async def create(
         cls,
         uri: str = settings.MONGO_URL,
-        db_name: str = settings.MONGO_DB
+        db_name: str = settings.MONGO_DB,
+        scrapper: Scrapper = None,
+        rag: RagClient = None,
     ) -> "DataBaseHelper":
         client = AsyncIOMotorClient(uri)
         db = client[db_name]
-        self = cls(db)
+        self = cls(db, scrapper, rag)
         await self._setup()
         await mongo_db_logger.info("MongoDB connected")
         return self
@@ -54,7 +55,10 @@ class DataBaseHelper(Injectable):
         if await self.users.find_one({"_id": user_id}):
             await mongo_db_logger.warning(f"User '{user_id}' already exists")
             raise ValueError("User already exists")
-        user = UserModel(id=user_id, name=name)
+        user = UserModel(
+            name=name,
+            _id=user_id,
+        )
         await self.users.insert_one(user.dict(by_alias=True))
 
     async def delete_user(self, user_id: int) -> None:
@@ -111,7 +115,7 @@ class DataBaseHelper(Injectable):
         if await self.channels.find_one({"_id": id}):
             await mongo_db_logger.warning(f"Channel '{channel_id}' already exists. Will not create one.")
             raise ValueError("Channel already exists")
-        channel = ChannelModel(id=channel_id, name=name)
+        channel = ChannelModel(_id=channel_id, name=name)
         await self.channels.insert_one(channel.dict(by_alias=True))
 
         # Add channel to Scrapper

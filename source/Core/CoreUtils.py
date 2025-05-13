@@ -1,5 +1,5 @@
 from types import MappingProxyType
-from source.Core.TaskScheduling import ProcessState
+
 # Lookup tables
 
 size_type_dict = MappingProxyType({
@@ -31,12 +31,9 @@ time_type_dict = MappingProxyType({
             "days": 60 * 60 * 24,
             "day": 60 * 60 * 24
         })
+# Process state dictionary
+from source.Core.TaskScheduling import ProcessState
 
-process_state_dict = MappingProxyType({
-    ProcessState.IDLE: "Idle",
-    ProcessState.BUSY: "Busy",
-    ProcessState.STOPPED: "Stopped"
-})
 
 
 

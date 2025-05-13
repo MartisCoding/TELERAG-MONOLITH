@@ -1,3 +1,5 @@
+from typing import Optional
+
 from aiogram.client.default import DefaultBotProperties
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.fsm.context import FSMContext
@@ -14,16 +16,15 @@ from aiogram.types import (
 )
 
 from source.TgUI.States import AddSourceStates
-from source.Config import settings
-from source.Core import Injectable, Logger, CoreMultiprocessing, Task
+from source.Core import Logger
 from source.Database.DBHelper import DataBaseHelper
 from source.ChromaАndRAG.ChromaClient import RagClient
 import re, asyncio
 telegram_ui_logger = Logger("TelegramUI", "network.log")
 
 
-class BotApp(Injectable):
-    def __init__(self, token: str, DataBaseHelper: DataBaseHelper, RagClient: RagClient):
+class BotApp:
+    def __init__(self, token: str,db_helper: DataBaseHelper, rag: RagClient):
         self.bot = Bot(
             token=token,
             default=DefaultBotProperties(
@@ -35,11 +36,14 @@ class BotApp(Injectable):
         self.dispatcher.include_router(self.router)
         self.__include_handlers()
 
-        self.DataBaseHelper = DataBaseHelper
-        self.RagClient = RagClient
+        self.DataBaseHelper = db_helper
+        self.RagClient = rag
 
         self.request_queueue = asyncio.Queue()
         self.response_queue = asyncio.Queue()
+
+        self._request_task: Optional[asyncio.Task] = None
+        self._response_task: Optional[asyncio.Task] = None
 
     def __include_handlers(self):
         # --- Хэндлеры для сообщений ---
@@ -102,8 +106,9 @@ class BotApp(Injectable):
         )
         await self.DataBaseHelper.delete_user(message.from_user.id)
 
+    @staticmethod
     async def __add_command_handler(
-        self, message: Message, state: FSMContext
+        message: Message, state: FSMContext
     ):
         cancel_button = ReplyKeyboardMarkup(
             keyboard=[[KeyboardButton(text="Отмена🔴")]],
@@ -116,7 +121,8 @@ class BotApp(Injectable):
         )
         await state.set_state(AddSourceStates.waiting_for_source)
 
-    async def __cancel_handler(self, message: Message, state: FSMContext):
+    @staticmethod
+    async def __cancel_handler( message: Message, state: FSMContext):
         await state.clear()
         await message.answer(
             "Добавление источника отменено.",
@@ -187,7 +193,8 @@ class BotApp(Injectable):
             await message.answer(
                 "Вы не зарегистрированы в системе. Добавьте хотя бы один источник, чтобы получить доступ к этой функции."
             )
-            return
+            return None
+
 
         user_channels = user.channels
         channel_names = []
@@ -197,7 +204,11 @@ class BotApp(Injectable):
                 channel_names.append(f"id: {channel}, Имя: {chat.first_name}")
             else:
                 channel_names.append(f"id: {channel}, Имя: Неизвестный канал")
-        return f"{len(channel_names)} каналов:\n\n" + "\n".join(channel_names)
+        await message.answer(
+            "Ваши источники:\n" + "\n".join(channel_names),
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return None
 
     async def __get_channels_internal(self, user_id: int):
         try:
@@ -226,8 +237,8 @@ class BotApp(Injectable):
             return
         await self.__send_paginated_channels(message, channels, page=1)
 
+    @staticmethod
     async def __send_paginated_channels(
-        self,
         message: Message,
         channels,
         page: int
@@ -291,7 +302,7 @@ class BotApp(Injectable):
                 )
         elif callback_data.startswith("page:"):
             page = int(callback_data.split(":")[1])
-            channels = await self.__get_channels()
+            channels = await self.__get_channels_internal(user_id=callback_query.from_user.id)
             await self.__send_paginated_channels(
                 callback_query.message,
                 channels,
@@ -362,8 +373,21 @@ class BotApp(Injectable):
 
     async def start(self):
         await self.dispatcher.start_polling(self.bot)
+        self._request_task = asyncio.create_task(self.__request_loop())
+        self._response_task = asyncio.create_task(self.__response_loop())
 
-        request_task = Task("RAG_request_loop", self.__request_loop)
-        response_task = Task("RAG_response_loop", self.__response_loop)
-        CoreMultiprocessing.push_task(request_task)
-        CoreMultiprocessing.push_task(response_task)
+    async def stop(self):
+        if self._request_task:
+            self._request_task.cancel()
+            try:
+                await self._request_task
+            except asyncio.CancelledError:
+                pass
+
+        if self._response_task:
+            self._response_task.cancel()
+            try:
+                await self._response_task
+            except asyncio.CancelledError:
+                pass
+        await self.bot.session.close()

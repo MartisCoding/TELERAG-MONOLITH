@@ -110,6 +110,12 @@ task_scheduler_logger = Logger("TaskScheduler", "runtime.log")
 process_logger = Logger("Process", "runtime.log")
 compositor_logger = Logger("Compositor", "runtime.log")
 
+process_state_dict = MappingProxyType({
+    ProcessState.IDLE: "Idle",
+    ProcessState.BUSY: "Busy",
+    ProcessState.STOPPED: "Stopped"
+})
+
 class Task:
     def __init__(
             self,

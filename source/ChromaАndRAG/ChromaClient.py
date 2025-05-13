@@ -2,15 +2,15 @@ import asyncio, re, mistralai, time
 from chromadb import Client
 from hashlib import sha256
 from chromadb.config import Settings
-from source.Core import Injectable, Logger, CoreMultiprocessing, Task
+from source.Core import Logger
 from source.TelegramMessageScrapper.Base import Scrapper
 from sentence_transformers import SentenceTransformer
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 rag_logger = Logger("RAG_module", "network.log")
 
-class RagClient(Injectable):
-    def __init__(self, host: str, port: int, n_result: int, model: str, mistral_api_key: str, mistral_model: str, Scrapper: Scrapper,):
+class RagClient:
+    def __init__(self, host: str, port: int, n_result: int, model: str, mistral_api_key: str, mistral_model: str, scrapper: Scrapper,):
         self.client = Client(
             Settings(
                 chroma_db_impl="rest",
@@ -18,7 +18,7 @@ class RagClient(Injectable):
                 chroma_server_http_port=port,
             )
         )
-        self.Scrapper = Scrapper
+        self.Scrapper = scrapper
         self.channel_request_queue: asyncio.Queue[Tuple[int, str, List[int]]] = asyncio.Queue()
         self.rag_response_queue: asyncio.Queue = asyncio.Queue()
         self.SentenceTransformer = SentenceTransformer(model)
@@ -28,6 +28,9 @@ class RagClient(Injectable):
             api_key=mistral_api_key
         )
         self.mistral_model = mistral_model
+
+        self._query_task: Optional[asyncio.Task] = None
+        self._data_task: Optional[asyncio.Task] = None
 
     async def delete_channel(self, channel_id: int):
         """
@@ -75,21 +78,12 @@ class RagClient(Injectable):
 
         return embedded_chunks
 
-    def start_rag(self):
+    async def start_rag(self):
         """
         Starts the RAG client by creating a task for the data loop and query loop.
         """
-        task = Task(
-            func=self._data_loop,
-            name="RAG_data_loop"
-        )
-        CoreMultiprocessing.push_task(task)
-
-        task = Task(
-            func=self._query_loop,
-            name="RAG_query_loop"
-        )
-        CoreMultiprocessing.push_task(task)
+        self._query_task = asyncio.create_task(self._query_loop())
+        self._data_task = asyncio.create_task(self._data_loop())
 
     async def _data_loop(self):
         self.Scrapper.getting_messages_event.wait()

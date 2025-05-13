@@ -1,9 +1,9 @@
-from typing import List
+from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
 class UserModel(BaseModel):
-    id: int = Field(alias="_id")
+    user_id: int = Field(alias="_id")
     name: str
     channels: List[int] = Field(default_factory=list)
 
@@ -12,7 +12,7 @@ class UserModel(BaseModel):
 
 
 class ChannelModel(BaseModel):
-    id: int = Field(alias="_id")
+    channel_id: int = Field(alias="_id")
     name: str
     subscribers: int = 0
 

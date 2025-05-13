@@ -6,8 +6,9 @@ import enum
 from pyrogram import Client, filters
 from pyrogram.enums import ChatType
 from dataclasses import dataclass
-from source.Core import Logger, CoreMultiprocessing, Task, CoreException, Injectable
+from source.Core import Logger
 from typing import Any, Dict, List, Tuple
+
 scrapper_logger = Logger("Scrapper", "network.log")
 
 class ScrapSIG(enum.Enum):
@@ -19,12 +20,12 @@ class ChannelRecord:
     channel_id: int
     action: ScrapSIG
 
-class Scrapper(Injectable):
+class Scrapper:
     """
     The logic is that the bot accepts new channel_ids, if channels database was updated (new channel added or deleted)
     """
 
-    class ScrapperException(CoreException):
+    class ScrapperException(Exception):
         pass
 
     def __init__(self, api_id: str, api_hash: str, history_limit: int):
@@ -40,20 +41,17 @@ class Scrapper(Injectable):
         self.getting_messages_event = asyncio.Event()
         self.running = True
 
-    def update(self, records: List[ChannelRecord]) -> None:
+        self.
+
+    async def update(self, records: List[ChannelRecord]) -> None:
         """
         Creates an update task for the scrapper.
         """
         if not self.running:
             return
-        task = Task(
-            func=self._update,
-            args=(records,),
-            name="Scrapper.update"
-        )
-        CoreMultiprocessing.push_task(task)
+        await self._update(records)
 
-    async def _update(self, record: List[ChannelRecord]) -> None:
+    async def _update(self, records: List[ChannelRecord]) -> None:
         """
         Updates the state of scrapper by adding or deleting channels.
         """
@@ -62,37 +60,29 @@ class Scrapper(Injectable):
             return
 
         await scrapper_logger.debug("Got update request... Updating channels...")
-        for record in record:
+        for records in records:
             try:
-                chat = await self.pyro_client.get_chat(record.channel_id)
+                chat = await self.pyro_client.get_chat(records.channel_id)
                 if chat.type != ChatType.CHANNEL:
                     raise self.ScrapperException(
                         where="Scrapper.update()",
                         what="Invalid channel type",
-                        summary=f"Channel {record.channel_id} is not a channel.",
+                        summary=f"Channel {records.channel_id} is not a channel.",
                     )
-                if record.action == ScrapSIG.SUB:
-                    if record.channel_id in self.channels_and_messages.keys():
-                        raise self.ScrapperException(
-                            where="Scrapper.update()",
-                            what="Channel already subscribed, while trying to subscribe",
-                            summary=f"Channel {record.channel_id} is already subscribed.",
-                        )
-                    await self.pyro_client.join_chat(record.channel_id)
-                    chat = await self.pyro_client.get_chat(record.channel_id)
-                    self.channels_and_messages[record.channel_id] = (chat.first_name, [])
-                    await self.fetch(record.channel_id)
+                if records.action == ScrapSIG.SUB:
+                    if records.channel_id in self.channels_and_messages.keys():
+                        raise ValueError("Channel already subscribed")
+                    await self.pyro_client.join_chat(records.channel_id)
+                    chat = await self.pyro_client.get_chat(records.channel_id)
+                    self.channels_and_messages[records.channel_id] = (chat.first_name, [])
+                    await self.fetch(records.channel_id)
                     await self.update_or_create_message_handler()
-                elif record.action == ScrapSIG.UNSUB:
-                    if record.channel_id not in self.channels_and_messages.keys():
-                        raise self.ScrapperException(
-                            where="Scrapper.update()",
-                            what="Channel not subscribed, while trying to unsubscribe",
-                            summary=f"Channel {record.channel_id} is not subscribed.",
-                        )
-                    await self.pyro_client.leave_chat(record.channel_id)
-                    self.channels_and_messages[record.channel_id][1].clear()
-                    del self.channels_and_messages[record.channel_id]
+                elif records.action == ScrapSIG.UNSUB:
+                    if records.channel_id not in self.channels_and_messages.keys():
+                        raise ValueError("Channel not subscribed")
+                    await self.pyro_client.leave_chat(records.channel_id)
+                    self.channels_and_messages[records.channel_id][1].clear()
+                    del self.channels_and_messages[records.channel_id]
                     await self.update_or_create_message_handler()
             except self.ScrapperException as e:
                 await scrapper_logger.warning("An error occurred while updating the scrapper: " + str(e) + "Skipping this channel.")
@@ -106,11 +96,7 @@ class Scrapper(Injectable):
             return
         msgs = []
         if channel_id not in self.channels_and_messages.keys():
-            raise self.ScrapperException(
-                where="Scrapper.fetch()",
-                what="Channel not subscribed",
-                summary=f"Got unsubscribed channel id: {channel_id}. Try to subscribe first.",
-            )
+            raise ValueError("Channel not subscribed")
         try:
             async for message in self.pyro_client.get_chat_history(channel_id, limit=self.message_hist_limit):
                 if message.text:
@@ -131,11 +117,7 @@ class Scrapper(Injectable):
         Updates PyroGram's message handler. If not created, creates a new one.
         """
         if not self.channels_and_messages.keys():
-            raise self.ScrapperException(
-                where="Scrapper.update_or_create_message_handler()",
-                what="Nothing to create.",
-                summary="Channels pool is empty. Nothing to create."
-            )
+            raise ValueError("No channels subscribed")
 
         if self.message_handler:
             await self.pyro_client.remove_handler(self.message_handler)

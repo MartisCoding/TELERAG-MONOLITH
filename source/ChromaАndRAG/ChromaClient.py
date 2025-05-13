@@ -2,7 +2,7 @@ import asyncio, re, mistralai, time
 from chromadb import Client
 from hashlib import sha256
 from chromadb.config import Settings
-from source.Core import Logger
+from source.Logging import Logger
 from source.TelegramMessageScrapper.Base import Scrapper
 from sentence_transformers import SentenceTransformer
 from typing import List, Tuple, Optional

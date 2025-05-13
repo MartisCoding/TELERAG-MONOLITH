@@ -101,10 +101,10 @@ Usage Examples:
 """
 import enum, multiprocessing as mp, time, heapq, asyncio, inspect, psutil
 from typing import Callable, Optional, Any, Tuple, List, Dict, Iterable
-from source.Core.Logging import Logger, LogLevel
+from source.Logging import Logger, LogLevel
 from dataclasses import dataclass
-from source.Core.CoreUtils import time_type_dict
-from source.Core.Profiling import Profiler
+from Core.CoreUtils import time_type_dict
+from Core.Profiling import Profiler
 
 task_scheduler_logger = Logger("TaskScheduler", "runtime.log")
 process_logger = Logger("Process", "runtime.log")

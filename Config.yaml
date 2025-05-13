@@ -28,7 +28,3 @@ Mongo:
 Aiogram:
   TELEGRAM_TOKEN: "your_telegram_token"
 
-Web:
-  SECRET: "your_secret"
-  HOST: "localhost"
-  PORT: 8080

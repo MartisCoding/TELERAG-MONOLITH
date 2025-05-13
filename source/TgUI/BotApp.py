@@ -16,7 +16,7 @@ from aiogram.types import (
 )
 
 from source.TgUI.States import AddSourceStates
-from source.Core import Logger
+from source.Logging import Logger
 from source.Database.DBHelper import DataBaseHelper
 from source.ChromaАndRAG.ChromaClient import RagClient
 import re, asyncio

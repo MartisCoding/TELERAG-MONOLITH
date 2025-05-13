@@ -1,6 +1,6 @@
 import asyncio
 
-from source.Core.Logging import Logger, LoggerComposer
+from source.Logging import Logger, LoggerComposer
 from source.Database.DBHelper import DataBaseHelper
 from source.TgUI.BotApp import BotApp
 from source.ChromaАndRAG.ChromaClient import RagClient

@@ -6,7 +6,7 @@ import enum
 from pyrogram import Client, filters
 from pyrogram.enums import ChatType
 from dataclasses import dataclass
-from source.Core import Logger
+from source.Logging import Logger
 from typing import Any, Dict, List, Tuple
 
 scrapper_logger = Logger("Scrapper", "network.log")
@@ -41,7 +41,6 @@ class Scrapper:
         self.getting_messages_event = asyncio.Event()
         self.running = True
 
-        self.
 
     async def update(self, records: List[ChannelRecord]) -> None:
         """

@@ -6,7 +6,7 @@ from motor.motor_asyncio import (
 )
 
 from pymongo.errors import CollectionInvalid
-from source.Core import Logger
+from source.Logging import Logger
 
 from source.Database.Models import UserModel, ChannelModel
 from source.Config import settings

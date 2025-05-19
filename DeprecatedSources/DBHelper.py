@@ -8,10 +8,7 @@ from motor.motor_asyncio import (
 from pymongo.errors import CollectionInvalid
 from source.Logging import Logger
 
-from source.Database.Models import UserModel, ChannelModel
-from source.TelegramMessageScrapper.Base import Scrapper, ScrapSIG, ChannelRecord
-from source.ChromaАndRAG.ChromaClient import RagClient
-
+from DeprecatedSources.Models import UserModel, ChannelModel
 
 
 class DataBaseHelper:
@@ -153,5 +150,6 @@ class DataBaseHelper:
                 {"id": channel_id},
                 {"$inc": {"subscribers": -1}}
             )
+
 
 

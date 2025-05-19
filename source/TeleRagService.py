@@ -1,91 +1,68 @@
-import asyncio
-
-from source.Logging import Logger, LoggerComposer
-from source.Database.DBHelper import DataBaseHelper
-from source.TgUI.BotApp import BotApp
-from source.ChromaАndRAG.ChromaClient import RagClient
-from source.TelegramMessageScrapper.Base import Scrapper
-
+from source.Database.MongoHelper import MongoDBHelper
+from source.TgUI.AiogramIntegration import AiogramBot
+from source.TelegramMessageScrapper.Crawler import TeleRagCrawler
+from source.ChromaАndRAG.ChromaDBHelper import ChromaDBHelper
+from source.ChromaАndRAG.llmGateway import LLMGateway
+from source.Logging import LoggerRegistry, GateWayStrategy
+from source.ResponseProcessing import ExecutorManager
 from source.DynamicConfigurationLoading import TGConfig
-
 class TeleRagService:
-    """
-    The Tele rag Service class is responsible for managing the Telegram message scrapper and the RAG client.
-    It handles the initialization, updating, and querying of channels and messages.
-    """
-
     def __init__(self, settings: TGConfig):
-        self.settings = settings
-        self.logger_composer = LoggerComposer(
-            loglevel=settings.LOG_LEVEL,
+        self.registry = LoggerRegistry(
+            level=settings.LOG_LEVEL,
+            gateway_strategy=GateWayStrategy(
+                directory=settings.LOG_DIRECTORY,
+                ext=".log",
+                size_threshold=settings.LOG_SIZE_THRESHOLD,
+                age_threshold=settings.LOG_AGE_THRESHOLD,
+                encoding=settings.LOG_ENCODING,
+            )
         )
-        self.tele_rag_logger = Logger("TeleRag", "network.log")
-        self.Scrapper = Scrapper(
-            api_id=settings.PYRO_API_ID,
-            api_hash=settings.PYRO_API_HASH,
-            history_limit=settings.PYRO_HISTORY_LIMIT,
+        self.executor = ExecutorManager(
+            maximum_executors=settings.MAX_EXECUTORS,
+            minimum_executors=settings.MIN_EXECUTORS,
+            executor_timeout=settings.EXECUTOR_TIMEOUT,
+            max_queue_size=settings.MAX_EXECUTOR_QUEUE_SIZE,
+            max_self_queue_size=settings.MAX_MANAGER_QUEUE_SIZE
         )
-        self.RagClient = RagClient(
+        self.llm_gateway = LLMGateway(
+            api_key=settings.LLM_API_KEY,
+            model=settings.LLM_MODEL,
+            temperature=settings.LLM_TEMPERATURE,
+            max_tokens=settings.LLM_MAX_TOKENS
+        )
+        self.chroma_db = ChromaDBHelper(
+            model=settings.SENTENCE_TRANSFORMER_MODEL,
             host=settings.RAG_HOST,
             port=settings.RAG_PORT,
             n_result=settings.RAG_N_RESULT,
-            model=settings.SENTENCE_TRANSFORMER_MODEL,
-            mistral_api_key=settings.MISTRAL_API_KEY,
-            mistral_model=settings.MISTRAL_API_MODEL,
-            scrapper=self.Scrapper,
+            max_chunk_size_in_sentences=5,
+            max_cache=1000,
+            time_to_live=60,
+            llm_gateway=self.llm_gateway
         )
-
-
-        self.BotApp = BotApp(
-            token=settings.AIOGRAM_API_KEY,
-            rag=self.RagClient,
-            db_helper=None,
+        self.crawler = TeleRagCrawler(
+            api_id=settings.PYRO_API_ID,
+            api_hash=settings.PYRO_API_HASH,
+            history_limit=settings.PYRO_HISTORY_LIMIT,
+            chroma=self.chroma_db
         )
-        self.logger_composer.set_level_if_not_set()
-        self.stop_event = asyncio.Event()
-        self.register_stop_signal_handler()
-
-    async def start(self):
-        await self.__create_db(self.settings)
-        await self.tele_rag_logger.info("Starting TeleRagService...")
-        await self.RagClient.start_rag()
-        await self.Scrapper.scrapper_start()
-        await self.BotApp.start()
-
-    async def idle(self):
-        await self.tele_rag_logger.info("Waiting for stop signal... Press Ctrl+C to stop.")
-        await self.stop_event.wait()
-        await self.tele_rag_logger.info("Stop signal received. Stopping TeleRagService...")
-        await self.Scrapper.scrapper_stop()
-        await self.RagClient.stop()
-        await self.BotApp.stop()
-        self.stop_event.clear()
-        await self.tele_rag_logger.info("TeleRagService stopped.")
-
-
-    def __stop_signal_handler(self):
-        self.stop_event.set()
-
-    def register_stop_signal_handler(self):
-        """
-        Register a signal handler for stopping the service.
-        """
-        import signal
-        loop = asyncio.get_event_loop()
-        loop.add_signal_handler(signal.SIGTERM, self.__stop_signal_handler, )
-        loop.add_signal_handler(signal.SIGINT, self.__stop_signal_handler, )
-
-    async def __create_db(self, settings: TGConfig):
-        self.DataBaseHelper = await DataBaseHelper.create(
-            uri=self.construct_url(settings),
+        self.mongo_helper = MongoDBHelper.create(
+            crawler=self.crawler,
+            uri=f"mongodb://{settings.MONGO_USERNAME}:{settings.MONGO_PASSWORD}@{settings.MONGO_HOST}:{settings.MONGO_PORT}/",
             db_name=settings.MONGO_DATABASE_NAME,
         )
-        self.BotApp.include_db(self.DataBaseHelper)
-        del self.settings
+        self.bot = AiogramBot(
+            token=settings.AIOGRAM_TOKEN,
+            db=self.mongo_helper,
+        )
 
-    @staticmethod
-    def construct_url(settings: TGConfig):
+    async def start(self):
         """
-        Construct the MongoDB URI from the settings.
+        Starts the TeleRagService.
         """
-        return f"mongodb://{settings.MONGO_USERNAME}:{settings.MONGO_PASSWORD}@{settings.MONGO_HOST}:{settings.MONGO_PORT}/"
+        await self.crawler.start()
+        await self.bot.start()
+
+    async def stop(self):
+        await self.crawler.stop()

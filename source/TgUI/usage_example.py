@@ -1,5 +1,5 @@
 import asyncio
-from source.TgUI.BotApp import BotApp
+from DeprecatedSources.BotApp import BotApp
 
 """
 Комады бота:

@@ -2,7 +2,7 @@ import asyncio, re, time
 from chromadb import HttpClient
 from hashlib import sha256
 from source.Logging import Logger
-from source.TelegramMessageScrapper.Base import Scrapper
+from DeprecatedSources.Base_back import Scrapper
 from sentence_transformers import SentenceTransformer
 from typing import List, Tuple, Optional
 from openai import OpenAI

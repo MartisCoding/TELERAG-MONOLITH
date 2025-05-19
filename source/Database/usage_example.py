@@ -1,5 +1,5 @@
 import asyncio
-from source.Database.DBHelper import DataBaseHelper
+from DeprecatedSources.DBHelper import DataBaseHelper
 
 #  Временный файл как использовать бдшку
 

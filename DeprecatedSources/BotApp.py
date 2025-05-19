@@ -16,17 +16,17 @@ from aiogram.types import (
 )
 
 from source.TgUI.States import AddSourceStates
-from source.Logging import Logger
-from source.Database.DBHelper import DataBaseHelper
-from source.ChromaАndRAG.ChromaClient import RagClient
-from source.TelegramMessageScrapper.Base import Scrapper
+
+from DeprecatedSources.DBHelper import DataBaseHelper
+from DeprecatedSources.ChromaClient import RagClient
+from DeprecatedSources.Base_back import Scrapper
 import re, asyncio
 
 
 
 class BotApp:
     def __init__(self, token: str,db_helper: Optional[DataBaseHelper], rag: RagClient, scrapper: Scrapper):
-        self.telegram_ui_logger = Logger("TelegramUI", "network.log")
+
         self.bot = Bot(
             token=token,
             default=DefaultBotProperties(
@@ -41,9 +41,6 @@ class BotApp:
         self.DataBaseHelper = db_helper
         self.RagClient = rag
         self.Scrapper = scrapper
-
-        self.request_queueue = asyncio.Queue()
-        self.response_queue = asyncio.Queue()
 
         self._request_task: Optional[asyncio.Task] = None
         self._response_task: Optional[asyncio.Task] = None
@@ -78,7 +75,6 @@ class BotApp:
         self.router.callback_query.register(self.__inline_button_handler)
 
     async def __start_handler(self, message: Message):
-        await self.telegram_ui_logger.info(f"User {message.from_user.id} started the bot.")
 
         await self.bot.set_my_commands([
             BotCommand(command="/start", description="Начать работу с ботом"),
@@ -271,10 +267,10 @@ class BotApp:
         navigation_buttons = []
         if page > 1:
             navigation_buttons.append(InlineKeyboardButton(
-                text="<<<", callback_data=f"page:{page - 1}"))
+                text="<<<", callback_data=f"page:{page - 1}:channels:{channels}"))
         if end < len(channels):
             navigation_buttons.append(InlineKeyboardButton(
-                text=">>>", callback_data=f"page:{page + 1}"))
+                text=">>>", callback_data=f"page:{page + 1}:channels:{channels}"))
         if navigation_buttons:
             inline_keyboard.append(navigation_buttons)
 
@@ -338,7 +334,6 @@ class BotApp:
         try:
             user = await self.DataBaseHelper.get_user(message.from_user.id)
         except ValueError:
-            await self.telegram_ui_logger.error("Could not get user from DB.")
             await message.answer(
                 "Вы не зарегистрированы в системе. Пожалуйста, добавьте источник, чтобы получить доступ к этой функции."
             )
@@ -375,10 +370,6 @@ class BotApp:
                 await self.bot.send_message(user_id, response)
             except Exception as e:
                 await self.telegram_ui_logger.error(f"Failed to send message to {user_id}: {e}")
-
-
-
-
 
 
     async def start(self):

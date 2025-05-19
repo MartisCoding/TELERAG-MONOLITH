@@ -11,15 +11,6 @@ from typing import Any, Dict, List, Tuple
 from pyrogram.errors import PeerIdInvalid, ChatAdminRequired, ChatWriteForbidden, UserAlreadyParticipant
 
 
-class ScrapSIG(enum.Enum):
-    SUB = 0
-    UNSUB = 1
-
-@dataclass
-class ChannelRecord:
-    channel_id: int
-    action: ScrapSIG
-
 class Scrapper:
     """
     The logic is that the bot accepts new channel_ids, if channels database was updated (new channel added or deleted)
@@ -29,7 +20,7 @@ class Scrapper:
         pass
 
     def __init__(self, api_id: str, api_hash: str, history_limit: int):
-        self.scrapper_logger = Logger("Scrapper", "network.log")
+
         self.pyro_client = Client(
             name="TELERAG-MessageScrapper",
             api_id=api_id,
